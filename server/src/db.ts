@@ -55,6 +55,7 @@ export function openDb(path: string) {
   const listeners = new Set<(e: AgentEvent) => void>();
 
   return {
+    sql: db,
     append(e: NewEvent): AgentEvent {
       const info = insert.run({
         ...e,

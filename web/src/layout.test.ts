@@ -144,3 +144,80 @@ test("finished lanes free their column for later lanes", () => {
   assert.equal(columns, 3);
   assert.equal(lanes.find((l) => l.label === "slow check")!.column, lanes.find((l) => l.label === "server review")!.column);
 });
+
+for (const [name, events] of Object.entries(fixtures)) {
+  test(`${name}: reasoning never changes geometry`, () => {
+    const bare = events.filter((e) => e.kind !== "reasoning");
+    const a = layout(events, opts(bare)), b = layout(bare, opts(bare));
+    assert.deepEqual(a.segments, b.segments);
+    for (const e of bare) assert.equal(a.scale.y(e.ts), b.scale.y(e.ts));
+  });
+
+  test(`${name}: every response lands on a generating segment of its own lane`, () => {
+    const L = layout(events, opts(events));
+    const segOf = new Map<string, string>();
+    for (const [seg, ids] of Object.entries(L.reasoning)) for (const id of ids) segOf.set(id, seg);
+    for (const r of events.filter((e) => e.kind === "reasoning")) {
+      const seg = L.segments.find((s) => s.id === segOf.get(r.id));
+      assert.ok(seg, `reasoning #${r.id} attributed`);
+      assert.equal(seg!.laneId, r.agent_id);
+      assert.equal(seg!.state, "generating");
+    }
+  });
+}
+
+// m1-two-wave is left out: it predates PostToolBatch, so its permission-denied calls stay open
+// until the lane's next call and the response that made that call has no generation to land on.
+for (const name of ["m0-parallel-3-default", "m0-parallel-3-foreground", "m0-rate-limited-partial", "m1-long-wait", "m1-tool-failure"]) test(`${name}: a response that calls tools belongs to the generation that ends at its first call`, () => {
+  const evs = fixtures[name];
+  const L = layout(evs, opts(evs));
+  const preTs = new Map(evs.filter((e) => e.kind === "tool_start" || e.kind === "spawn").map((e) => [e.payload.tool_use_id, e.ts]));
+  let checked = 0;
+  for (const [segId, ids] of Object.entries(L.reasoning)) {
+    const seg = L.segments.find((s) => s.id === segId)!;
+    const byMessage = Map.groupBy(ids.map((id) => evs.find((e) => e.id === id)!), (r) => r.payload.message_id);
+    for (const records of byMessage.values()) {
+      const calls = records.flatMap((r) => (r.payload.blocks as any[]).filter((b) => b.type === "tool_use" && preTs.has(b.id)));
+      if (!calls.length) continue;
+      assert.equal(seg.end, Math.min(...calls.map((b) => preTs.get(b.id)!)));
+      checked++;
+    }
+  }
+  assert.ok(checked >= 2, `${checked} tool-calling responses checked`);
+});
+
+test("a subagent's final answer lands on its last generation", () => {
+  const evs = fixtures["m0-parallel-3-foreground"];
+  const L = layout(evs, opts(evs));
+  for (const lane of L.lanes.filter((l) => l.parentId)) {
+    const last = L.segments.filter((s) => s.laneId === lane.id && s.state === "generating").at(-1)!;
+    const texts = (L.reasoning[last.id] ?? []).map((id) => evs.find((e) => e.id === id)!)
+      .flatMap((r) => (r.payload.blocks as any[]).filter((b) => b.type === "text"));
+    assert.ok(texts.length > 0, `${lane.label} final text on its last segment`);
+  }
+});
+
+test("attribution survives a clock shift between hooks and transcripts (replays)", () => {
+  const evs = fixtures["m1-two-wave"];
+  const shifted = evs.map((e) => (e.kind === "reasoning" ? e : { ...e, ts: e.ts + 3_600_000 }));
+  const a = layout(evs, opts(evs));
+  const b = layout(shifted, opts(shifted));
+  const key = (L: typeof a) => Object.entries(L.reasoning).map(([seg, ids]) => {
+    const s = L.segments.find((x) => x.id === seg)!;
+    return `${s.laneId}#${L.segments.filter((x) => x.laneId === s.laneId).indexOf(s)}:${ids.join(",")}`;
+  }).sort();
+  assert.deepEqual(key(b), key(a));
+});
+
+test("attribution survives a sped-up replay (hook time compressed 4x)", () => {
+  for (const name of ["m1-two-wave", "m0-parallel-3-default", "m0-rate-limited-partial"]) {
+    const evs = fixtures[name];
+    const t0 = Math.min(...evs.map((e) => e.ts));
+    const fast = evs.map((e) => (e.kind === "reasoning" ? e : { ...e, ts: t0 + 3_600_000 + (e.ts - t0) / 4 }));
+    const key = (L: ReturnType<typeof layout>) => Object.entries(L.reasoning).map(([seg, ids]) => {
+      const s = L.segments.find((x) => x.id === seg)!;
+      return `${s.laneId}#${L.segments.filter((x) => x.laneId === s.laneId).indexOf(s)}:${ids.join(",")}`;
+    }).sort();
+    assert.deepEqual(key(layout(fast, opts(fast))), key(layout(evs, opts(evs))), name);
+  }
+});

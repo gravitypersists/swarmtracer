@@ -20,7 +20,42 @@
   #summary { color: var(--dim); }
   .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--dim); margin-left: auto; }
   .legend svg { vertical-align: middle; margin-right: 4px; }
-  #timeline { flex: 1; overflow: auto; }
+  #body { flex: 1; display: flex; min-height: 0; }
+  #timeline { flex: 1; overflow: auto; min-width: 0; }
+  #panel { position: relative; width: min(440px, 45vw); flex: none; border-left: 1px solid var(--rule); background: var(--panel); display: flex; flex-direction: column; }
+  #panel[hidden] { display: none; }
+  @media (max-width: 720px) { #panel { position: fixed; inset: auto 0 0 0; width: 100%; height: 60vh; border-left: 0; border-top: 1px solid var(--rule); z-index: 6; } }
+  #panel-close { position: absolute; top: 8px; right: 8px; background: none; border: 0; color: var(--dim); font: 18px/1 inherit; cursor: pointer; padding: 4px 8px; }
+  #panel-body { overflow: auto; padding: 14px 16px 24px; font-size: 12px; line-height: 1.5; }
+  #panel-body header { margin-bottom: 12px; padding-right: 24px; }
+  #panel-body h2 { font-size: 14px; margin: 6px 0 2px; }
+  #panel-body h3 { font-size: 12px; margin: 16px 0 6px; color: var(--fg); }
+  #panel-body p { margin: 4px 0 10px; }
+  #panel-body a { color: var(--tool); text-decoration: none; } #panel-body a:hover { text-decoration: underline; }
+  #panel-body pre { white-space: pre-wrap; word-break: break-word; background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 8px; margin: 6px 0; max-height: 360px; overflow: auto; }
+  #panel-body pre.result { color: var(--dim); }
+  #panel-body ul { padding-left: 18px; margin: 4px 0; }
+  .prose { white-space: pre-wrap; word-break: break-word; margin: 8px 0; font-family: ui-sans-serif, system-ui, sans-serif; font-size: 13px; line-height: 1.55; }
+  .thinking { border-left: 2px solid var(--wait); padding-left: 10px; margin: 8px 0; color: #b1bac4; }
+  .thinking summary { color: var(--wait); cursor: pointer; font-size: 11px; }
+  .note { color: var(--dim); font-style: italic; border-left: 2px solid var(--rule); padding-left: 10px; }
+  .call { color: var(--tool); margin: 6px 0; }
+  .badge { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding: 2px 6px; border-radius: 3px; background: var(--rule); color: var(--fg); }
+  .badge-generating { background: var(--gen); color: var(--bg); } .badge-tool { background: var(--tool); color: var(--bg); }
+  .badge-waiting_on_child { background: var(--wait); color: var(--bg); } .badge-error { background: var(--err); color: var(--bg); }
+  .err { color: var(--err); }
+  .bar { display: flex; height: 8px; border-radius: 2px; overflow: hidden; margin: 8px 0; gap: 1px; }
+  .bar-generating { background: var(--gen); } .bar-tool { background: var(--tool); } .bar-waiting_on_child { background: var(--wait); }
+  .bar-idle { background: var(--idle); } .bar-sleeping { background: var(--sleep); }
+  .breakdown { list-style: none; padding: 0 !important; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+  .breakdown i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+  .excerpt { margin-top: 18px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 5px 10px; cursor: pointer; }
+  .rec-user pre { border-color: #58a6ff44; }
+  .seg, .lane-label, .marker, .conn { cursor: pointer; }
+  .seg.selected { stroke: var(--fg); stroke-width: 2; }
+  rect.seg.selected { stroke-width: 1.5; }
+  .lane-label.selected { fill: var(--gen); }
+  .marker.selected { fill: var(--fg); }
 
   .tick { stroke: var(--rule); }
   .tick-label { fill: var(--dim); text-anchor: end; font-size: 10px; }
@@ -71,7 +106,13 @@
     <span><svg width="10" height="12"><line x1="5" x2="5" y1="1" y2="12" stroke="var(--sleep)" stroke-width="2" stroke-dasharray="1 4" stroke-linecap="round"/></svg>idle / sleeping</span>
   </div>
 </header>
-<main id="timeline"></main>
+<div id="body">
+  <main id="timeline"></main>
+  <aside id="panel" hidden aria-label="Details">
+    <button id="panel-close" aria-label="Close details">×</button>
+    <div id="panel-body"></div>
+  </aside>
+</div>
 <div id="tip" hidden></div>
 <button id="live-pill" hidden>↓ Live</button>
 <script type="module" src="/app.js"></script>

@@ -2,6 +2,7 @@
 import type { AgentEvent } from "../../shared/events.ts";
 import { DEFAULT_OPTIONS, layout, type Layout, type LayoutOptions } from "./layout.ts";
 import { fmtDur, Renderer } from "./render.ts";
+import { renderExcerpt, renderPanel, type Selection } from "./panel.ts";
 
 interface RunSummary { run_id: string; started: number; last: number; events: number; agents: number; ended: number }
 
@@ -11,6 +12,9 @@ const tip = $("tip");
 const runSel = $<HTMLSelectElement>("run");
 const zoom = $<HTMLInputElement>("zoom");
 const pill = $<HTMLButtonElement>("live-pill");
+const panel = $("panel");
+const panelBody = $("panel-body");
+let selection: Selection | null = null;
 const renderer = new Renderer(scroller);
 
 let runId: string | null = null;
@@ -46,6 +50,7 @@ function frame(t: number) {
     current = layout(events, options());
     renderer.render(current, now(), view(), live);
     updateSummary();
+    if (selection) showPanel(); // new events can change what the open panel shows
     dirty = false;
     lastFull = t;
   } else if (current && live) {
@@ -81,6 +86,7 @@ async function loadRun(id: string) {
   events = [];
   byId = new Map();
   expanded.clear();
+  select(null);
   sticky = true;
   history.replaceState(null, "", `?run=${encodeURIComponent(id)}`);
   const past: AgentEvent[] = await (await fetch(`/runs/${encodeURIComponent(id)}/events`)).json();
@@ -135,12 +141,61 @@ pill.onclick = () => {
   pill.hidden = true;
 };
 
-// Gaps expand/collapse on click.
+// Clicks: gaps expand/collapse; segments, lanes and markers open the panel.
 renderer.root.addEventListener("click", (e) => {
-  const gap = (e.target as Element).closest("[data-gap]")?.getAttribute("data-gap");
-  if (!gap) return;
-  expanded.has(gap) ? expanded.delete(gap) : expanded.add(gap);
-  dirty = true;
+  const t = e.target as Element;
+  const gap = t.closest("[data-gap]")?.getAttribute("data-gap");
+  if (gap) {
+    expanded.has(gap) ? expanded.delete(gap) : expanded.add(gap);
+    dirty = true;
+    return;
+  }
+  const seg = t.closest("[data-seg]")?.getAttribute("data-seg");
+  const lane = t.closest("[data-lane]")?.getAttribute("data-lane");
+  const marker = t.closest("[data-marker]")?.getAttribute("data-marker");
+  select(seg ? { kind: "segment", id: seg } : marker ? { kind: "marker", id: marker } : lane ? { kind: "lane", id: lane } : null);
+});
+
+function select(sel: Selection | null) {
+  selection = sel;
+  renderer.selected = !sel ? null : sel.kind === "lane" ? `lane:${sel.id}` : sel.id;
+  panel.hidden = !sel;
+  if (sel) showPanel();
+  dirty = true; // redraw the selection highlight
+}
+
+function showPanel() {
+  if (!selection || !current) return;
+  // Keep an excerpt the user already opened; it is fetched on demand and doesn't change live.
+  const excerpt = panelBody.querySelector(".excerpt-out")?.innerHTML;
+  const key = `${selection.kind}:${selection.id}`;
+  const scroll = panelBody.dataset.key === key ? panelBody.scrollTop : 0;
+  panelBody.innerHTML = renderPanel(selection, { L: current, byId, events, now: now() });
+  const out = panelBody.querySelector(".excerpt-out");
+  if (excerpt && out && panelBody.dataset.key === key) out.innerHTML = excerpt;
+  panelBody.dataset.key = key;
+  panelBody.scrollTop = scroll;
+}
+
+panel.addEventListener("click", async (e) => {
+  const t = e.target as HTMLElement;
+  if (t.closest("#panel-close")) return select(null);
+  const lane = t.closest("[data-open-lane]")?.getAttribute("data-open-lane");
+  if (lane) {
+    e.preventDefault();
+    return select({ kind: "lane", id: lane });
+  }
+  const btn = t.closest<HTMLButtonElement>("[data-excerpt]");
+  if (btn) {
+    const q = new URLSearchParams({ path: btn.dataset.excerpt!, from: btn.dataset.from!, to: btn.dataset.to! });
+    const out = btn.nextElementSibling as HTMLElement;
+    out.innerHTML = `<p class="dim">Loading…</p>`;
+    const res = await fetch(`/transcript?${q}`);
+    out.innerHTML = res.ok ? renderExcerpt(await res.json()) : `<p class="err">Couldn't read the transcript (${res.status}).</p>`;
+  }
+});
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && selection) select(null);
 });
 
 // Hover anything: list the events behind it.

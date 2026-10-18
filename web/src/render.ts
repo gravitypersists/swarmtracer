@@ -31,6 +31,7 @@ export class Renderer {
   private L: Layout | null = null;
   private laneX = new Map<string, number>();
   private width = 0;
+  selected: string | null = null; // segment id, `lane:<id>`, or marker id
 
   constructor(container: HTMLElement) {
     this.root = document.createElementNS(SVG, "svg");
@@ -89,7 +90,8 @@ export class Renderer {
       const bend = Math.max(12, Math.abs(x1 - x0) * 0.35);
       // Leave and enter horizontally so near-simultaneous handoffs still read as a hop.
       const d = `M${x0},${y0} C${x0 + Math.sign(x1 - x0) * bend},${y0} ${x1 - Math.sign(x1 - x0) * bend},${y1} ${x1},${y1}`;
-      this.put(`c:${c.id}`, "path", this.layers.conn, { d, class: `conn conn-${c.kind}`, "data-ids": c.eventIds.join(",") });
+      const child = c.kind === "spawn" ? c.toLane : c.fromLane;
+      this.put(`c:${c.id}`, "path", this.layers.conn, { d, class: `conn conn-${c.kind}`, "data-ids": c.eventIds.join(","), "data-lane": child });
     }
 
     // Lanes: settled segments (live tips are tick()'s), a label at the start, a cap at the end.
@@ -104,7 +106,8 @@ export class Renderer {
       const ys = y(l.start);
       if (visible(ys - 30, ys)) {
         this.put(`lbl:${l.id}`, "text", this.layers.marks, {
-          x, y: ys - 8, class: l.parentId ? "lane-label" : "lane-label root", "data-ids": l.eventIds.join(","),
+          x, y: ys - 8, "data-ids": l.eventIds.join(","), "data-lane": l.id,
+          class: `lane-label${l.parentId ? "" : " root"}${this.selected === `lane:${l.id}` ? " selected" : ""}`,
         }, l.label);
       }
       if (l.end !== null && visible(y(l.end), y(l.end))) {
@@ -124,7 +127,8 @@ export class Renderer {
       if (x === undefined) continue;
       const glyph = { prompt: "▸", permission: "◆", error: "✕" }[m.kind];
       this.put(m.id, "text", this.layers.marks, {
-        x: x - GEOMETRY.barWidth - 4, y: my + 4, class: `marker marker-${m.kind}`, "data-ids": m.eventIds.join(","),
+        x: x - GEOMETRY.barWidth - 4, y: my + 4, "data-ids": m.eventIds.join(","), "data-marker": m.id,
+        class: `marker marker-${m.kind}${this.selected === m.id ? " selected" : ""}`,
       }, glyph);
     }
 
@@ -168,7 +172,7 @@ export class Renderer {
 
   private segment(s: Segment, x: number, y0: number, y1: number) {
     const live = s.end === null;
-    const cls = `seg ${STATE_CLASS[s.state]}${live ? " live" : ""}`;
+    const cls = `seg ${STATE_CLASS[s.state]}${live ? " live" : ""}${this.selected === s.id ? " selected" : ""}`;
     const ids = s.eventIds.join(",");
     if (s.state === "generating" || s.state === "tool") {
       const w = GEOMETRY.barWidth;

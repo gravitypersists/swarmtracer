@@ -3,8 +3,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { AgentEvent } from "../../shared/events.ts";
 import { openDb } from "./db.ts";
-import { isHookInput, normalizeHook } from "./normalize.ts";
+import { isHookInput, normalizeHook, type HookInput } from "./normalize.ts";
 import { createCorrelator } from "./correlate.ts";
+import { createTranscripts } from "./transcripts.ts";
+import { subagentTranscriptPath } from "../../shared/transcript.ts";
+import { readTranscriptExcerpt } from "./excerpt.ts";
 
 const PORT = Number(process.env.SWARMTRACER_PORT ?? 47821);
 const DB_PATH = process.env.SWARMTRACER_DB ?? fileURLToPath(new URL("../../data/swarmtracer.db", import.meta.url));
@@ -12,6 +15,7 @@ const VERBOSE = process.env.SWARMTRACER_VERBOSE === "1";
 
 const db = openDb(DB_PATH);
 const correlator = createCorrelator(db, (msg) => console.log(`[correlate] ${msg}`));
+const transcripts = createTranscripts(db.sql, db);
 const WEB = new URL("../../web/", import.meta.url);
 // Read per request so `npm run dev` picks up rebuilt bundles without a restart.
 const STATIC: Record<string, [string, string]> = {
@@ -26,8 +30,25 @@ function ingest(body: unknown, ts: number) {
     if (!isHookInput(item)) continue; // CLI events arrive in M4
     db.append(normalizeHook(item, ts));
     correlator.observe(item);
+    trackTranscripts(item);
     if (VERBOSE) console.log(`[event] ${item.hook_event_name} ${item.agent_id ?? "root"} ${item.tool_name ?? ""}`);
   }
+}
+
+// Hooks name every transcript we may tail: the session's on every event, a subagent's from its id.
+function trackTranscripts(h: HookInput) {
+  if (!h.transcript_path) return;
+  const run = { run_id: h.session_id, session_id: h.session_id };
+  transcripts.register(h.transcript_path, { ...run, agent_id: h.session_id });
+  const sub = h.agent_id ? subagentTranscriptPath(h.transcript_path, h.agent_id) : undefined;
+  if (h.hook_event_name === "SubagentStart" && sub) transcripts.register(sub, { ...run, agent_id: h.agent_id! });
+  if (h.hook_event_name === "SubagentStop" && sub) {
+    const path = h.agent_transcript_path ?? sub;
+    transcripts.register(path, { ...run, agent_id: h.agent_id! });
+    transcripts.finish(path, h.session_id);
+  }
+  if (h.hook_event_name === "StopFailure" && sub) transcripts.finish(sub, h.session_id);
+  if (h.hook_event_name === "SessionEnd") transcripts.finish(h.transcript_path, h.session_id);
 }
 
 function json(res: ServerResponse, value: unknown) {
@@ -80,6 +101,13 @@ const server = createServer((req, res) => {
   if (req.method === "POST" && url.pathname === "/events") return onEvents(req, res);
   if (req.method === "GET" && url.pathname === "/stream") return onStream(req, res, url);
   if (req.method === "GET" && url.pathname === "/runs") return json(res, db.runs());
+  if (req.method === "GET" && url.pathname === "/transcript") {
+    const path = url.searchParams.get("path") ?? "";
+    if (!transcripts.isKnown(path)) return void res.writeHead(403).end("unknown transcript");
+    const from = Number(url.searchParams.get("from") ?? 0), to = Number(url.searchParams.get("to") ?? Infinity);
+    readTranscriptExcerpt(path, from, to).then((v) => json(res, v), () => res.writeHead(404).end());
+    return;
+  }
   if (req.method === "GET" && runMatch) {
     return json(res, db.events(decodeURIComponent(runMatch[1]), Number(url.searchParams.get("after") ?? 0)));
   }

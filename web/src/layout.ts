@@ -87,6 +87,7 @@ export interface Layout {
   columns: number;
   scale: TimeScale;
   options: LayoutOptions;
+  reasoning: Record<string, string[]>; // generating segment id → reasoning event ids, in order
 }
 
 // The quiet span after the last change, once it is long enough to count as a gap. It grows with
@@ -306,9 +307,100 @@ function packColumns(lanes: Lane[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// Reasoning: each API response (records sharing message_id) belongs to one generating segment.
+// A response that called a tool belongs to the segment ending at that call's PreToolUse, matched by
+// tool_use_id. One that didn't (a final answer, or a call the harness blocked before PreToolUse)
+// goes to the segment containing its transcript timestamp mapped onto the hook clock. The mapping is
+// a line fitted through the tool_use matches (transcript write time → PreToolUse receipt): live it
+// is ~identity; for a replayed run it absorbs the replay's shift and speed.
+
+function attributeReasoning(segments: Segment[], events: AgentEvent[], reasoning: AgentEvent[]) {
+  const out: Record<string, string[]> = {};
+  const preTs = new Map<string, number>(); // tool_use_id → PreToolUse ts
+  for (const e of events) {
+    if ((e.kind === "tool_start" || e.kind === "spawn") && e.payload.tool_use_id) preTs.set(e.payload.tool_use_id as string, e.ts);
+  }
+  const gensByLane = new Map<string, Segment[]>();
+  for (const s of segments) {
+    if (s.state === "generating") (gensByLane.get(s.laneId) ?? gensByLane.set(s.laneId, []).get(s.laneId)!).push(s);
+  }
+
+  const messages = new Map<string, AgentEvent[]>(); // `${lane}\0${message_id}` → records in file order
+  for (const r of [...reasoning].sort((a, b) => Number(a.id) - Number(b.id))) {
+    const k = `${r.agent_id}\0${r.payload.message_id}`;
+    (messages.get(k) ?? messages.set(k, []).get(k)!).push(r);
+  }
+
+  const written = (r: AgentEvent) => r.client_ts ?? r.ts;
+  const pairs: [number, number][] = [];
+  for (const r of reasoning) {
+    for (const b of r.payload.blocks as any[]) {
+      const pre = b.type === "tool_use" ? preTs.get(b.id) : undefined;
+      if (pre !== undefined) pairs.push([written(r), pre]);
+    }
+  }
+  const toHookClock = fitClock(pairs);
+
+  // Per lane, in transcript order: anchored responses first, then the rest within the window
+  // between their anchored neighbours. A response after a tool call can't land before that call's
+  // generation, and order holds whatever the clocks do; time only picks within the window.
+  const byLane = new Map<string, AgentEvent[][]>();
+  for (const records of messages.values()) {
+    const lane = records[0].agent_id;
+    (byLane.get(lane) ?? byLane.set(lane, []).get(lane)!).push(records);
+  }
+  for (const [lane, msgs] of byLane) {
+    const gens = gensByLane.get(lane);
+    if (!gens?.length) continue;
+    const idx: (number | undefined)[] = msgs.map((records) => {
+      const anchor = records
+        .flatMap((r) => (r.payload.blocks as any[]).filter((b) => b.type === "tool_use").map((b) => preTs.get(b.id)))
+        .find((t) => t !== undefined);
+      if (anchor === undefined) return undefined;
+      const i = gens.findIndex((g) => g.start < anchor && anchor <= (g.end ?? Infinity));
+      return i < 0 ? undefined : i;
+    });
+    msgs.forEach((records, m) => {
+      let i = idx[m];
+      if (i === undefined) {
+        const prev = idx.slice(0, m).findLast((x) => x !== undefined);
+        const next = idx.slice(m + 1).find((x) => x !== undefined);
+        let lo = prev === undefined ? 0 : prev + 1;
+        let hi = next === undefined ? gens.length - 1 : next;
+        if (lo > hi) [lo, hi] = [0, gens.length - 1];
+        const t = toHookClock(Math.max(...records.map(written)));
+        const window = gens.slice(lo, hi + 1);
+        const hit = window.find((g) => g.start <= t && t <= (g.end ?? Infinity)) ??
+          window.reduce((best, g) => (dist(g, t) < dist(best, t) ? g : best));
+        i = gens.indexOf(hit);
+      }
+      (out[gens[i].id] ??= []).push(...records.map((r) => r.id));
+    });
+  }
+  return out;
+}
+
+// Least-squares line through (written, received) pairs; falls back to a pure offset when the
+// points can't support a slope, and to identity with no points.
+function fitClock(pairs: [number, number][]): (t: number) => number {
+  if (!pairs.length) return (t) => t;
+  const n = pairs.length;
+  const mx = pairs.reduce((a, p) => a + p[0], 0) / n, my = pairs.reduce((a, p) => a + p[1], 0) / n;
+  let sxx = 0, sxy = 0;
+  for (const [x, y] of pairs) { sxx += (x - mx) ** 2; sxy += (x - mx) * (y - my); }
+  const slope = sxx > 0 ? sxy / sxx : 1;
+  const a = n >= 2 && slope > 0.05 && slope < 20 ? slope : 1;
+  return (t) => my + a * (t - mx);
+}
+
+const dist = (g: Segment, t: number) => (t < g.start ? g.start - t : g.end !== null && t > g.end ? t - g.end : 0);
+
+// ---------------------------------------------------------------------------
 
 export function layout(all: AgentEvent[], o: LayoutOptions): Layout {
-  const events = [...all].sort((a, b) => a.ts - b.ts || Number(a.id) - Number(b.id));
+  // Reasoning never shapes geometry: it is attached to generating segments at the end.
+  const reasoningEvents = all.filter((e) => e.kind === "reasoning");
+  const events = all.filter((e) => e.kind !== "reasoning").sort((a, b) => a.ts - b.ts || Number(a.id) - Number(b.id));
   const t0 = events[0]?.ts ?? o.now;
   const rootId = events[0]?.session_id;
 
@@ -427,5 +519,7 @@ export function layout(all: AgentEvent[], o: LayoutOptions): Layout {
   ];
   const { scale, gaps } = buildScale(changes, o);
 
-  return { t0, lanes, segments, connectors, markers, gaps, columns, scale, options: o };
+  const reasoning = attributeReasoning(segments, events, reasoningEvents);
+
+  return { t0, lanes, segments, connectors, markers, gaps, columns, scale, options: o, reasoning };
 }
