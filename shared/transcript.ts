@@ -11,6 +11,7 @@ export interface ReasoningPayload {
   message_id: string;
   uuid: string;
   transcript_ts: number;
+  model?: string; // e.g. "claude-sonnet-5-5"
   blocks: ReasoningBlock[];
 }
 
@@ -40,6 +41,7 @@ export function parseTranscriptRecord(line: string): ReasoningPayload | null {
     message_id: String(rec.message.id ?? rec.uuid),
     uuid: String(rec.uuid ?? ""),
     transcript_ts: Date.parse(rec.timestamp) || 0,
+    model: typeof rec.message.model === "string" ? rec.message.model : undefined,
     blocks,
   };
 }

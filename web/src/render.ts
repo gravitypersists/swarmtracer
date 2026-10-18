@@ -1,6 +1,7 @@
 // Keyed SVG renderer. Elements are created on first sight, touched only when an attribute
 // changes, and removed when they leave the view. Geometry comes from layout.ts.
 
+import { botMarkup, familyOf } from "./bots.ts";
 import { ANNOTATIONS, trailingGap, type Gap, type Layout, type MarkerKind, type Segment, type SegmentState } from "./layout.ts";
 
 const SVG = "http://www.w3.org/2000/svg";
@@ -9,7 +10,7 @@ export const GEOMETRY = {
   axisWidth: 72, // time labels on the left
   pitch: 128, // px between lane centers
   top: 44, // room above t0 for the first lane label
-  bottom: 48,
+  bottom: 72, // room for the robots under live tips
   barWidth: 10,
 };
 
@@ -42,7 +43,13 @@ export class Renderer {
     this.root.innerHTML = `<defs>
       <pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
         <rect width="4" height="4" class="hatch-bg"/><line x1="0" y1="0" x2="0" y2="4" class="hatch-line"/>
+      </pattern>
+      <pattern id="gen-live" width="10" height="26" patternUnits="userSpaceOnUse">
+        <rect width="10" height="26" class="gen-bg"/><rect y="2" width="10" height="5" class="gen-streak"/>
+        <animateTransform attributeName="patternTransform" type="translate" from="0 0" to="0 26" dur="1.1s" repeatCount="indefinite"/>
       </pattern></defs>`;
+    // SMIL ignores prefers-reduced-motion; honour it by hand.
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) this.root.querySelector("animateTransform")?.remove();
     const layer = (name: string) => {
       const g = document.createElementNS(SVG, "g");
       g.setAttribute("class", name);
@@ -162,6 +169,12 @@ export class Renderer {
     }
     const tail = live ? trailingGap(L, now) : null;
     if (tail) this.gap(tail);
+    // A robot rides the tip of every running lane, doing whatever the lane is doing.
+    for (const lane of L.lanes) {
+      if (lane.end !== null) continue;
+      const tip = L.segments.findLast((s) => s.laneId === lane.id && s.end === null);
+      this.bot(lane.id, familyOf(lane.model), this.laneX.get(lane.id)!, y(now) + 3, tip?.state ?? "generating", lane.model);
+    }
     const end = Math.max(now, ...L.lanes.map((l) => l.end ?? now));
     if (live) {
       const ny = y(now);
@@ -169,6 +182,23 @@ export class Renderer {
       this.put("now:l", "text", this.layers.now, { x: GEOMETRY.axisWidth - 10, y: ny + 4, class: "now-label" }, "now");
     }
     this.root.setAttribute("height", String(y(end) + GEOMETRY.bottom));
+  }
+
+  private bot(laneId: string, family: string, x: number, y: number, state: string, model?: string) {
+    const key = `bot:${laneId}`;
+    const existing = this.els.get(key);
+    if (existing && existing.el.getAttribute("data-family") !== family) {
+      existing.el.remove(); // the lane's model became known: swap the figure
+      this.els.delete(key);
+    }
+    const fresh = !this.els.has(key);
+    this.put(key, "g", this.layers.now, {
+      transform: `translate(${x},${y}) scale(1.35)`, class: `bot bot-${family} bot-${state}`,
+      "data-family": family, "data-lane": laneId, "data-model": model ?? "",
+    });
+    if (fresh) {
+      this.els.get(key)!.el.innerHTML = botMarkup(family as Parameters<typeof botMarkup>[0]);
+    }
   }
 
   // A band across all lanes with the duration it hides. A live tail's label counts up.

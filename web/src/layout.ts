@@ -11,6 +11,7 @@ export type SegmentState = "generating" | "tool" | "waiting_on_child" | "idle" |
 export interface Lane {
   id: string; // agent_id
   label: string;
+  model?: string; // e.g. "claude-sonnet-5-5", or an alias like "haiku" from the spawn call
   parentId?: string;
   column: number;
   start: number;
@@ -420,6 +421,19 @@ export function layout(all: AgentEvent[], o: LayoutOptions): Layout {
   const rootEvents = rootId ? byLane.get(rootId) ?? [] : [];
   const rootEnd = rootEvents.find((e) => e.kind === "session_end")?.ts ?? null;
   const lanes: Lane[] = [];
+  // Model: what the transcript says the lane is running (most recent), else what it was asked for.
+  const transcriptModel = new Map<string, string>();
+  for (const r of reasoningEvents) {
+    const m = r.payload.model;
+    if (typeof m === "string" && !m.startsWith("<")) transcriptModel.set(r.agent_id, m); // skip "<synthetic>"
+  }
+  const modelFor = (id: string, evs: AgentEvent[], spawn: AgentEvent | undefined) =>
+    transcriptModel.get(id) ??
+    ((spawn?.payload.tool_input as any)?.model as string | undefined) ??
+    (evs.find((e) => e.kind === "session_start")?.payload.model as string | undefined) ??
+    ((events.find((e) => e.kind === "tool_end" && spawn && e.payload.tool_use_id === spawn.payload.tool_use_id)
+      ?.payload.tool_response as any)?.resolvedModel as string | undefined);
+
   for (const [id, evs] of byLane) {
     const isRoot = id === rootId;
     const link = links.get(id);
@@ -438,6 +452,7 @@ export function layout(all: AgentEvent[], o: LayoutOptions): Layout {
     lanes.push({
       id,
       label: laneLabel(evs, spawn, isRoot),
+      model: modelFor(id, evs, spawn),
       parentId: link?.parent_agent_id ?? (isRoot ? undefined : rootId),
       column: 0,
       start: (startEv ?? evs[0]).ts,

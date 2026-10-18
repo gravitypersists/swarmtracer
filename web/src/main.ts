@@ -1,8 +1,10 @@
 // Timeline page: loads a run, follows it live over SSE, and keeps "now" in view.
 import type { AgentEvent } from "../../shared/events.ts";
 import { DEFAULT_OPTIONS, layout, type Layout, type LayoutOptions } from "./layout.ts";
-import { fmtDur, Renderer } from "./render.ts";
-import { renderExcerpt, renderPanel, type Selection } from "./panel.ts";
+import { fmtDur, GEOMETRY, Renderer } from "./render.ts";
+import { esc as escHtml, renderExcerpt, renderPanel, type Selection } from "./panel.ts";
+import { renderSummary } from "./summary.ts";
+import { HELP, navigate } from "./keys.ts";
 
 interface RunSummary { run_id: string; started: number; last: number; events: number; agents: number; ended: number }
 
@@ -66,11 +68,26 @@ function frame(t: number) {
   requestAnimationFrame(frame);
 }
 
+const strip = $("strip");
 function updateSummary() {
   if (!current) return;
   const end = current.lanes.reduce((m, l) => Math.max(m, l.end ?? now()), current.t0);
   $("summary").textContent = `${live ? "● live · " : ""}${current.lanes.length} agents · ${fmtDur(end - current.t0)} wall`;
+  if (!strip.hidden) strip.innerHTML = renderSummary(current, now());
 }
+
+// The strip's open/closed state is a per-viewer convenience; storage may be unavailable.
+function setStrip(open: boolean) {
+  strip.hidden = !open;
+  try { localStorage.setItem("swarmtracer.strip", open ? "1" : "0"); } catch {}
+  updateSummary();
+}
+try { strip.hidden = localStorage.getItem("swarmtracer.strip") === "0"; } catch {}
+$("strip-toggle").onclick = () => setStrip(strip.hidden !== false);
+strip.addEventListener("click", (e) => {
+  const lane = (e.target as Element).closest("[data-open-lane]")?.getAttribute("data-open-lane");
+  if (lane) select({ kind: "lane", id: lane });
+});
 
 function ingest(e: AgentEvent) {
   if (byId.has(e.id)) return;
@@ -114,13 +131,15 @@ async function init() {
   const id = runs.find((r) => r.run_id === wanted)?.run_id ?? runs[0]?.run_id;
   if (id) await loadRun(id);
 
-  // Watch for new runs. With nothing selected yet, jump to the first one that appears.
+  // Watch for new runs and follow one when it starts, unless you're watching a run that's still
+  // live: a finished run on screen shouldn't hide a new one starting.
   const all = new EventSource("/stream");
   all.onmessage = (m) => {
     const e: AgentEvent = JSON.parse(m.data);
     if (runs.some((r) => r.run_id === e.run_id)) return;
     runs.push({ run_id: e.run_id } as RunSummary); // placeholder until the refresh lands
-    refreshRuns().then(() => { if (!runId) loadRun(e.run_id); });
+    const follow = !runId || !live;
+    refreshRuns().then(() => { if (follow) loadRun(e.run_id); });
   };
 }
 
@@ -208,12 +227,59 @@ panel.addEventListener("click", async (e) => {
     out.innerHTML = res.ok ? renderExcerpt(await res.json()) : `<p class="err">Couldn't read the transcript (${res.status}).</p>`;
   }
 });
+// Keyboard: see HELP in keys.ts.
+const help = $("help");
+help.innerHTML = `<h2>Keyboard</h2><dl>${HELP.map(([k, v]) => `<dt>${escHtml(k)}</dt><dd>${escHtml(v)}</dd>`).join("")}</dl>`;
+$("help-toggle").onclick = () => (help.hidden = !help.hidden);
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && selection) select(null);
+  const typing = e.target instanceof Element && e.target.closest("input, select, textarea");
+  if (e.metaKey || e.ctrlKey || e.altKey || typing) return;
+  if (e.key === "Escape") {
+    if (!help.hidden) help.hidden = true;
+    else if (selection) select(null);
+    return;
+  }
+  if (e.key === "?") { help.hidden = !help.hidden; return; }
+  if (e.key === "s") { setStrip(strip.hidden !== false); return; }
+  if (e.key === "+" || e.key === "=" || e.key === "-") {
+    zoom.value = String(Number(zoom.value) * (e.key === "-" ? 0.8 : 1.25));
+    dirty = true;
+    return;
+  }
+  if (e.key === "g") { sticky = false; scroller.scrollTop = 0; return; }
+  if (e.key === "G" || e.key === "End") { sticky = true; pill.hidden = true; return; }
+  if (!current || !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "h", "j", "k", "l", "Enter"].includes(e.key)) return;
+  e.preventDefault();
+  const next = navigate(current, selection, e.key);
+  if (!next) return;
+  select(next);
+  revealSelection();
 });
+
+// Scroll a keyboard-chosen segment into view, releasing the live stick if it's off-screen.
+function revealSelection() {
+  if (!current || selection?.kind !== "segment") return;
+  const s = current.segments.find((x) => x.id === selection!.id);
+  if (!s) return;
+  const y0 = GEOMETRY.top + current.scale.y(s.start), y1 = GEOMETRY.top + current.scale.y(s.end ?? now());
+  const top = scroller.scrollTop, h = scroller.clientHeight;
+  if (y0 >= top + 20 && y1 <= top + h - 20) return;
+  sticky = false;
+  scroller.scrollTop = Math.max(0, (y0 + y1) / 2 - h / 2);
+}
 
 // Hover anything: list the events behind it.
 renderer.root.addEventListener("pointermove", (e) => {
+  const bot = (e.target as Element).closest(".bot");
+  if (bot && current) {
+    const lane = current.lanes.find((l) => l.id === bot.getAttribute("data-lane"));
+    const state = [...bot.classList].find((c) => c.startsWith("bot-") && c !== `bot-${bot.getAttribute("data-family")}`)?.slice(4) ?? "";
+    tip.innerHTML = `<b>${esc(lane?.label ?? "")}</b> · ${esc(bot.getAttribute("data-model") || "model not known yet")} · ${esc(state.replace(/_/g, " "))}`;
+    tip.hidden = false;
+    tip.style.left = `${e.clientX + 14}px`;
+    tip.style.top = `${e.clientY + 14}px`;
+    return;
+  }
   const el = (e.target as Element).closest("[data-ids]");
   const seg = el?.getAttribute("data-seg");
   const ids = el?.getAttribute("data-ids")?.split(",").filter(Boolean) ?? [];

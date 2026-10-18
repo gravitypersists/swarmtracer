@@ -18,6 +18,13 @@ const session = randomUUID();
 // against the replayed Bash calls. Artifacts are skipped: their bytes aren't in the fixture.
 const hooks = events.filter((e) => e.source === "hook" || (e.source === "cli" && e.kind !== "artifact"));
 
+try {
+  await fetch(`http://127.0.0.1:${port}/runs`, { signal: AbortSignal.timeout(1000) });
+} catch {
+  console.error(`No SwarmTracer server on port ${port}. Start it first (npm start), open http://127.0.0.1:${port}, then replay.`);
+  process.exit(1);
+}
+
 console.log(`replaying ${hooks.length} events as run ${session} at ${speed}x`);
 const start = Date.now();
 for (const e of hooks) {

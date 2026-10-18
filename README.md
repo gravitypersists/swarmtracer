@@ -40,6 +40,12 @@ atl artifact ./path/to/file ["what it is"]
 atl blocked "waiting on API key from user"
 ```
 
+## Using the page
+
+- Click any segment, lane, marker or connector for details. Hover anything to see the events behind it.
+- Keyboard: `↑↓`/`jk` segments, `←→`/`hl` lanes, `Enter` segment↔lane, `Esc` close, `g`/`G` start/live, `+`/`−` zoom, `s` summary, `?` help.
+- Running agents get a robot at their lane's tip: headphones for Opus, a beret for Sonnet, a sprout for Haiku.
+
 ## Checks
 
 - `npm test`: unit tests (layout against recorded runs, annotation matching).

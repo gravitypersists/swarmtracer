@@ -16,7 +16,7 @@ sleep 1.5
 (cd "${RECORD_DIR:-$ROOT}" && PATH="$ROOT/cli/bin:$PATH" env -u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION \
   -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN \
   -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_EFFORT -u AI_AGENT \
-  SWARMTRACER_PORT=$PORT claude -p "$PROMPT" --settings "$WORK/settings.json" --model sonnet \
+  SWARMTRACER_PORT=$PORT claude -p "$PROMPT" --settings "$WORK/settings.json" --model "${RECORD_MODEL:-sonnet}" \
     --output-format json --allowedTools "$@" </dev/null > "$WORK/result.json" 2>"$WORK/stderr")
 echo "exit=$?"
 sleep 3

@@ -165,6 +165,42 @@ try {
   await shot("m4-decision.png");
   const hdr = await js(`fetch(${JSON.stringify(href)}).then(r => r.headers.get("content-security-policy"))`);
   ok(/sandbox/.test(hdr ?? ""), "artifacts are served sandboxed");
+
+  // M5: robots ride live tips, one look per model; summary strip; keyboard; help.
+  const mixed = run("npx", ["tsx", "scripts/replay.ts", "fixtures/m5-mixed-models.json", "--speed", "1", "--port", String(PORT)]);
+  // The page is showing the finished M4 run, so it should follow the new run by itself.
+  let bots = [];
+  for (let i = 0; i < 20 && bots.length < 3; i++) {
+    await sleep(500);
+    bots = await js(`[...document.querySelectorAll(".bot")].map(b => b.getAttribute("data-family") + ":" + [...b.classList].at(-1))`);
+  }
+  ok(["opus", "haiku", "sonnet"].every((f) => bots.some((b) => b.startsWith(f + ":"))), `a robot per running agent, by model: ${bots.join(" ")}`);
+  await sleep(1200);
+  await shot("m5-robots.png");
+  const rows = await js(`document.querySelectorAll("#strip .row").length`);
+  ok(rows === 3, `summary strip has a row per agent (${rows})`);
+  await new Promise((r) => mixed.on("exit", r));
+  await sleep(800);
+  ok((await js(`document.querySelectorAll(".bot").length`)) === 0, "robots leave when their agents finish");
+
+  const key = (k) => js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)} }))`);
+  const selected = () => js(`document.querySelector(".seg.selected")?.getAttribute("data-seg") ?? document.querySelector(".lane-label.selected")?.textContent ?? null`);
+  await key("j"); await sleep(150);
+  const first = await selected();
+  await key("k"); await sleep(150);
+  const up = await selected();
+  ok(first && up && first !== up, `j/k select segments (${first} → ${up})`);
+  await key("l"); await sleep(150);
+  const right = await selected();
+  ok(right && right !== up, "l moves to the neighbouring lane");
+  await key("Enter"); await sleep(150);
+  ok(/LANE|subagent|main/i.test((await panel()) ?? ""), "Enter opens the lane");
+  await key("?"); await sleep(150);
+  ok(await js(`!document.getElementById("help").hidden`), "? shows the keyboard help");
+  await shot("m5-help.png");
+  await key("Escape"); await key("s"); await sleep(150);
+  ok(await js(`document.getElementById("strip").hidden`), "s hides the summary strip");
+  await key("s");
   ws.close();
 } finally {
   for (const k of kids) k.kill();

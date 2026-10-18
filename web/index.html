@@ -10,6 +10,7 @@
     --bg: #0b0d10; --panel: #12151a; --fg: #c9d1d9; --dim: #6e7681; --rule: #1b1f26;
     --gen: #f2cc60; --tool: #58a6ff; --wait: #bc8cff; --idle: #3d444d; --sleep: #768390;
     --conn: #8b949e; --err: #f85149; --perm: #e3b341;
+    --bot: #d97757; --bot-leg: #a8573d; --bot-face: #15181d; --bot-dark: #3a3f47; --leaf: #7ee787; --beret: #8957e5;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -20,6 +21,25 @@
   #summary { color: var(--dim); }
   .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--dim); margin-left: auto; }
   .legend svg { vertical-align: middle; margin-right: 4px; }
+  .hbtn { font: inherit; color: var(--dim); background: none; border: 1px solid var(--rule); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
+  .hbtn:hover { color: var(--fg); }
+
+  #strip { padding: 6px 16px 8px; border-bottom: 1px solid var(--rule); background: var(--panel); max-height: 28vh; overflow: auto; display: grid; gap: 3px; }
+  #strip[hidden] { display: none; }
+  #strip .row { all: unset; display: grid; grid-template-columns: minmax(80px, 160px) 48px 1fr minmax(150px, auto); gap: 10px; align-items: center; cursor: pointer; padding: 1px 4px; border-radius: 3px; }
+  #strip .row:hover, #strip .row:focus-visible { background: var(--rule); }
+  #strip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #strip .running .name::before { content: "● "; color: var(--gen); }
+  #strip .fam { color: var(--dim); font-size: 10px; }
+  #strip .track { height: 8px; background: #ffffff06; border-radius: 2px; position: relative; overflow: hidden; }
+  #strip .fill { display: flex; height: 100%; gap: 1px; min-width: 2px; }
+  #strip .nums { white-space: nowrap; text-align: right; }
+  @media (max-width: 720px) { #strip .row { grid-template-columns: 1fr auto; } #strip .fam, #strip .track { display: none; } }
+
+  #help { position: fixed; top: 64px; right: 16px; z-index: 20; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 16px; box-shadow: 0 8px 32px #000a; max-width: calc(100vw - 32px); }
+  #help h2 { font-size: 12px; margin: 0 0 8px; } #help dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; }
+  #help dt { color: var(--gen); white-space: nowrap; } #help dd { margin: 0; color: var(--fg); }
+
   #body { flex: 1; display: flex; min-height: 0; }
   #timeline { flex: 1; overflow: auto; min-width: 0; }
   #panel { position: relative; width: min(440px, 45vw); flex: none; border-left: 1px solid var(--rule); background: var(--panel); display: flex; flex-direction: column; }
@@ -52,6 +72,7 @@
   .bar { display: flex; height: 8px; border-radius: 2px; overflow: hidden; margin: 8px 0; gap: 1px; }
   .bar-generating { background: var(--gen); } .bar-tool { background: var(--tool); } .bar-waiting_on_child { background: var(--wait); }
   .bar-idle { background: var(--idle); } .bar-sleeping { background: var(--sleep); }
+  #strip .fill i { display: block; height: 100%; }
   .breakdown { list-style: none; padding: 0 !important; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
   .breakdown i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
   .excerpt { margin-top: 18px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 5px 10px; cursor: pointer; }
@@ -91,9 +112,46 @@
   .gap-live { fill: #ffffff04; }
   .now-line { stroke: var(--gen); stroke-width: 1; opacity: .5; }
   .now-label { fill: var(--gen); text-anchor: end; font-size: 10px; }
-  .seg.live.seg-gen { animation: breathe 1.6s ease-in-out infinite; }
-  @keyframes breathe { 50% { opacity: .65; } }
-  @media (prefers-reduced-motion: reduce) { .seg.live.seg-gen { animation: none; } }
+  .seg.live.seg-gen { fill: url(#gen-live); }
+  .gen-bg { fill: var(--gen); } .gen-streak { fill: #fff; opacity: .28; }
+
+  /* Robots at live tips. Every state's props are in the markup; the state class picks. */
+  .bot { cursor: pointer; }
+  .bot-head, .bot-body { fill: var(--bot); } .bot-leg { fill: var(--bot-leg); } .bot-face { fill: var(--bot-face); }
+  .bot-eye { fill: var(--gen); transform-box: fill-box; transform-origin: center; animation: blink 4s infinite; }
+  .bot-phones { fill: none; stroke: var(--bot-dark); stroke-width: 2.2; } .bot-cup { fill: var(--bot-dark); }
+  .bot-beret { fill: var(--beret); }
+  .bot-stem { fill: none; stroke: var(--leaf); stroke-width: 1.2; } .bot-leaf { fill: var(--leaf); }
+  .bot-antenna { stroke: var(--bot-dark); stroke-width: 1.2; } .bot-bulb { fill: var(--gen); }
+  .bot-label { fill: var(--dim); font-size: 8.5px; text-anchor: middle; letter-spacing: .06em; }
+  .bot-prop { opacity: 0; font-size: 9px; fill: var(--fg); transform-box: fill-box; transform-origin: center; }
+  .bot-figure { transform-box: fill-box; transform-origin: 50% 100%; }
+  .bot-leg { transform-box: fill-box; }
+
+  .bot-generating .bot-figure { animation: vibe .46s ease-in-out infinite alternate; }
+  .bot-generating .bot-note { animation: float 1.8s ease-out infinite; }
+  .bot-generating .bot-note-2 { animation-delay: .9s; }
+  .bot-tool .bot-gear { opacity: .9; fill: var(--tool); animation: spin 1.4s linear infinite; }
+  .bot-tool .bot-figure { animation: tinker .3s steps(2) infinite; }
+  .bot-waiting_on_child .bot-eye { animation: glance 2.6s ease-in-out infinite; }
+  .bot-waiting_on_child .bot-leg-r { animation: tap .5s ease-in-out infinite alternate; }
+  .bot-idle .bot-eye, .bot-sleeping .bot-eye { transform: scaleY(.25); animation: none; }
+  .bot-idle .bot-z, .bot-sleeping .bot-z { animation: float 2.6s ease-out infinite; }
+  .bot-idle .bot-z-2, .bot-sleeping .bot-z-2 { animation-delay: 1.3s; }
+  .bot-idle .bot-figure, .bot-sleeping .bot-figure { animation: snooze 3s ease-in-out infinite; }
+
+  @keyframes vibe { from { transform: rotate(-5deg); } to { transform: rotate(5deg) translateY(-1.5px); } }
+  @keyframes float { 0% { opacity: 0; transform: translate(0, 4px); } 30% { opacity: .9; } 100% { opacity: 0; transform: translate(3px, -9px); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes tinker { from { transform: translateX(-.6px); } to { transform: translateX(.6px); } }
+  @keyframes glance { 0%, 40% { transform: translateX(0); } 50%, 90% { transform: translateX(1.6px); } }
+  @keyframes tap { to { transform: translateY(-1.6px); } }
+  @keyframes snooze { 50% { transform: translateY(.8px); } }
+  @keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.1); } }
+  @media (prefers-reduced-motion: reduce) {
+    .bot *, .bot { animation: none !important; }
+    .bot-generating .bot-note-1, .bot-tool .bot-gear, .bot-idle .bot-z-1, .bot-sleeping .bot-z-1 { opacity: .8; }
+  }
   #live-pill { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 5; font: inherit; color: var(--bg); background: var(--gen); border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer; box-shadow: 0 4px 16px #0008; }
   #tip { position: fixed; z-index: 10; max-width: min(520px, calc(100vw - 16px)); padding: 8px 10px; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; pointer-events: none; box-shadow: 0 6px 24px #0008; }
   #tip div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -106,6 +164,8 @@
   <select id="run" aria-label="Run"></select>
   <label>zoom <input id="zoom" type="range" min="2" max="120" value="24" aria-label="Pixels per second"></label>
   <span id="summary"></span>
+  <button id="strip-toggle" class="hbtn" title="Summary (s)">summary</button>
+  <button id="help-toggle" class="hbtn" title="Keyboard (?)">?</button>
   <div class="legend">
     <span><svg width="10" height="12"><rect width="10" height="12" fill="var(--gen)"/></svg>generating</span>
     <span><svg width="10" height="12"><rect width="10" height="12" fill="#58a6ff33" stroke="var(--tool)"/></svg>tool</span>
@@ -114,6 +174,7 @@
     <span><b style="color:var(--fg)">●</b> note <b style="color:var(--wait)">◆</b> decision <b style="color:var(--tool)">▣</b> artifact <b style="color:var(--err)">■</b> blocked</span>
   </div>
 </header>
+<section id="strip" aria-label="Time per agent"></section>
 <div id="body">
   <main id="timeline"></main>
   <aside id="panel" hidden aria-label="Details">
@@ -123,6 +184,7 @@
 </div>
 <div id="tip" hidden></div>
 <button id="live-pill" hidden>↓ Live</button>
+<aside id="help" hidden></aside>
 <script type="module" src="/app.js"></script>
 </body>
 </html>
