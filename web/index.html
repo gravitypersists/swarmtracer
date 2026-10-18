@@ -46,6 +46,13 @@
   .marker { text-anchor: end; font-size: 11px; fill: var(--dim); cursor: default; }
   .marker-error { fill: var(--err); } .marker-permission { fill: var(--perm); }
 
+  .gap-live { fill: #ffffff04; }
+  .now-line { stroke: var(--gen); stroke-width: 1; opacity: .5; }
+  .now-label { fill: var(--gen); text-anchor: end; font-size: 10px; }
+  .seg.live.seg-gen { animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: .65; } }
+  @media (prefers-reduced-motion: reduce) { .seg.live.seg-gen { animation: none; } }
+  #live-pill { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 5; font: inherit; color: var(--bg); background: var(--gen); border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer; box-shadow: 0 4px 16px #0008; }
   #tip { position: fixed; z-index: 10; max-width: min(520px, calc(100vw - 16px)); padding: 8px 10px; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; pointer-events: none; box-shadow: 0 6px 24px #0008; }
   #tip div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .dim { color: var(--dim); }
@@ -66,6 +73,7 @@
 </header>
 <main id="timeline"></main>
 <div id="tip" hidden></div>
+<button id="live-pill" hidden>↓ Live</button>
 <script type="module" src="/app.js"></script>
 </body>
 </html>

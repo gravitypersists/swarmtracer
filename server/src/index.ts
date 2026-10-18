@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import type { AgentEvent } from "../../shared/events.ts";
 import { openDb } from "./db.ts";
 import { isHookInput, normalizeHook } from "./normalize.ts";
 import { createCorrelator } from "./correlate.ts";
@@ -34,6 +35,29 @@ function json(res: ServerResponse, value: unknown) {
   res.end(JSON.stringify(value));
 }
 
+// Server-Sent Events. `run` limits the stream to one run; without it every new event is sent
+// (the UI uses that to notice new runs). Resumes from Last-Event-ID or `after`.
+function onStream(req: IncomingMessage, res: ServerResponse, url: URL) {
+  const run = url.searchParams.get("run");
+  const resumeFrom = req.headers["last-event-id"] ?? url.searchParams.get("after");
+  let after = resumeFrom === null || resumeFrom === undefined ? (run ? 0 : db.maxSeq()) : Number(resumeFrom);
+  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
+
+  const send = (e: AgentEvent) => {
+    if ((run && e.run_id !== run) || Number(e.id) <= after) return;
+    after = Number(e.id);
+    res.write(`id: ${e.id}\ndata: ${JSON.stringify(e)}\n\n`);
+  };
+  const unsubscribe = db.subscribe(send);
+  for (const e of run ? db.events(run, after) : db.eventsAfter(after)) send(e);
+
+  const ping = setInterval(() => res.write(": ping\n\n"), 15_000);
+  req.on("close", () => {
+    unsubscribe();
+    clearInterval(ping);
+  });
+}
+
 function onEvents(req: IncomingMessage, res: ServerResponse) {
   const ts = Date.now(); // stamp on receipt, before reading the body
   const chunks: Buffer[] = [];
@@ -54,6 +78,7 @@ const server = createServer((req, res) => {
   const runMatch = url.pathname.match(/^\/runs\/([^/]+)\/events$/);
 
   if (req.method === "POST" && url.pathname === "/events") return onEvents(req, res);
+  if (req.method === "GET" && url.pathname === "/stream") return onStream(req, res, url);
   if (req.method === "GET" && url.pathname === "/runs") return json(res, db.runs());
   if (req.method === "GET" && runMatch) {
     return json(res, db.events(decodeURIComponent(runMatch[1]), Number(url.searchParams.get("after") ?? 0)));

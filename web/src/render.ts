@@ -1,7 +1,7 @@
 // Keyed SVG renderer. Elements are created on first sight, touched only when an attribute
 // changes, and removed when they leave the view. Geometry comes from layout.ts.
 
-import type { Layout, Segment, SegmentState } from "./layout.ts";
+import { trailingGap, type Gap, type Layout, type Segment, type SegmentState } from "./layout.ts";
 
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -27,7 +27,10 @@ export class Renderer {
   private els = new Map<string, { el: SVGElement; attrs: Attrs; text?: string }>();
   private seen = new Set<string>();
   readonly root: SVGSVGElement;
-  private layers: Record<"gaps" | "axis" | "conn" | "lanes" | "marks", SVGGElement>;
+  private layers: Record<"gaps" | "axis" | "conn" | "lanes" | "marks" | "now", SVGGElement>;
+  private L: Layout | null = null;
+  private laneX = new Map<string, number>();
+  private width = 0;
 
   constructor(container: HTMLElement) {
     this.root = document.createElementNS(SVG, "svg");
@@ -41,7 +44,9 @@ export class Renderer {
       this.root.append(g);
       return g;
     };
-    this.layers = { gaps: layer("gaps"), axis: layer("axis"), conn: layer("conn"), lanes: layer("lanes"), marks: layer("marks") };
+    this.layers = {
+      gaps: layer("gaps"), axis: layer("axis"), conn: layer("conn"), lanes: layer("lanes"), marks: layer("marks"), now: layer("now"),
+    };
     container.append(this.root);
   }
 
@@ -49,27 +54,19 @@ export class Renderer {
     return GEOMETRY.axisWidth + GEOMETRY.pitch * (column + 0.5);
   }
 
-  // `view` is the visible y range (plus margin); anything outside is culled.
-  render(L: Layout, now: number, view: { y0: number; y1: number }) {
+  // Full pass, run when the layout or the scroll position changes. `view` is the visible y range
+  // (plus margin); anything outside it is culled. Live elements are drawn by tick().
+  render(L: Layout, now: number, view: { y0: number; y1: number }, live: boolean) {
     this.seen.clear();
+    this.L = L;
     const y = (t: number) => GEOMETRY.top + L.scale.y(t);
     const visible = (a: number, b: number) => b >= view.y0 && a <= view.y1;
-    const laneX = new Map(L.lanes.map((l) => [l.id, this.colX(l.column)]));
-    const height = y(Math.max(now, ...L.lanes.map((l) => l.end ?? now))) + GEOMETRY.bottom;
-    const width = GEOMETRY.axisWidth + GEOMETRY.pitch * Math.max(L.columns, 1) + 24;
+    const laneX = (this.laneX = new Map(L.lanes.map((l) => [l.id, this.colX(l.column)])));
+    const width = (this.width = GEOMETRY.axisWidth + GEOMETRY.pitch * Math.max(L.columns, 1) + 24);
     this.root.setAttribute("width", String(width));
-    this.root.setAttribute("height", String(height));
 
-    // Gaps: a band across all lanes with the duration they hide.
     for (const g of L.gaps) {
-      const y0 = y(g.t0), y1 = y(g.t1);
-      if (!visible(y0, y1)) continue;
-      this.put(`gap:${g.id}`, "rect", this.layers.gaps, {
-        x: 0, y: y0, width, height: y1 - y0, class: g.expanded ? "gap gap-open" : "gap", "data-gap": g.id,
-      });
-      this.put(`gaplabel:${g.id}`, "text", this.layers.gaps, {
-        x: 8, y: (y0 + y1) / 2 + 4, class: "gap-label", "data-gap": g.id,
-      }, `${g.expanded ? "▾" : "⋯"} ${fmtDur(g.t1 - g.t0)}`);
+      if (visible(y(g.t0), y(g.t1))) this.gap(g);
     }
 
     // Time axis: a tick every `step` seconds, skipped inside compressed gaps.
@@ -95,10 +92,10 @@ export class Renderer {
       this.put(`c:${c.id}`, "path", this.layers.conn, { d, class: `conn conn-${c.kind}`, "data-ids": c.eventIds.join(",") });
     }
 
-    // Lanes: segments, then a label at the start and a cap at the end.
+    // Lanes: settled segments (live tips are tick()'s), a label at the start, a cap at the end.
     for (const s of L.segments) {
-      const end = s.end ?? now;
-      const y0 = y(s.start), y1 = y(end);
+      if (s.end === null) continue;
+      const y0 = y(s.start), y1 = y(s.end);
       if (!visible(y0, y1)) continue;
       this.segment(s, laneX.get(s.laneId)!, y0, y1);
     }
@@ -131,10 +128,42 @@ export class Renderer {
       }, glyph);
     }
 
-    // Cull everything not drawn this frame.
+    this.tick(now, live);
+
+    // Cull everything not drawn this pass.
     for (const [k, v] of this.els) {
       if (!this.seen.has(k)) { v.el.remove(); this.els.delete(k); }
     }
+  }
+
+  // Per-frame pass: only what moves with the clock. Live tips, the quiet tail, the now-line, height.
+  tick(now: number, live: boolean) {
+    const L = this.L;
+    if (!L) return;
+    const y = (t: number) => GEOMETRY.top + L.scale.y(t);
+    for (const s of L.segments) {
+      if (s.end === null) this.segment(s, this.laneX.get(s.laneId)!, y(s.start), y(now));
+    }
+    const tail = live ? trailingGap(L, now) : null;
+    if (tail) this.gap(tail);
+    const end = Math.max(now, ...L.lanes.map((l) => l.end ?? now));
+    if (live) {
+      const ny = y(now);
+      this.put("now", "line", this.layers.now, { x1: GEOMETRY.axisWidth - 6, x2: this.width, y1: ny, y2: ny, class: "now-line" });
+      this.put("now:l", "text", this.layers.now, { x: GEOMETRY.axisWidth - 10, y: ny + 4, class: "now-label" }, "now");
+    }
+    this.root.setAttribute("height", String(y(end) + GEOMETRY.bottom));
+  }
+
+  // A band across all lanes with the duration it hides. A live tail's label counts up.
+  private gap(g: Gap) {
+    this.put(`gap:${g.id}`, "rect", this.layers.gaps, {
+      x: 0, y: g.y0 + GEOMETRY.top, width: this.width, height: g.y1 - g.y0,
+      class: g.expanded ? "gap gap-open" : g.live ? "gap gap-live" : "gap", "data-gap": g.id,
+    });
+    this.put(`gaplabel:${g.id}`, "text", this.layers.gaps, {
+      x: 8, y: GEOMETRY.top + (g.y0 + g.y1) / 2 + 4, class: "gap-label", "data-gap": g.id,
+    }, `${g.expanded ? "▾" : "⋯"} ${fmtDur(g.t1 - g.t0)}`);
   }
 
   private segment(s: Segment, x: number, y0: number, y1: number) {

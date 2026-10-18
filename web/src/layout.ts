@@ -58,20 +58,22 @@ export interface Gap {
   y0: number;
   y1: number;
   expanded: boolean;
+  live?: boolean; // the quiet tail of a live run; t1 is `now`
 }
 
 export interface LayoutOptions {
   now: number; // live tips and live lanes extend to here
   pxPerSec: number;
-  gapThresholdMs: number; // quiet spans longer than this compress…
-  gapHeightPx: number; // …to this height
+  // A quiet span longer than this is drawn as if it lasted exactly this long. A live quiet tail
+  // therefore grows smoothly up to that height and then holds, and no span ever shrinks when the
+  // next event lands. Zoom scales gaps along with everything else.
+  gapThresholdMs: number;
   expandedGaps: ReadonlySet<string>; // gap ids the user expanded
 }
 
 export const DEFAULT_OPTIONS: Omit<LayoutOptions, "now"> = {
-  pxPerSec: 24,
-  gapThresholdMs: 20_000,
-  gapHeightPx: 36,
+  pxPerSec: 16,
+  gapThresholdMs: 10_000,
   expandedGaps: new Set(),
 };
 
@@ -84,6 +86,16 @@ export interface Layout {
   gaps: Gap[];
   columns: number;
   scale: TimeScale;
+  options: LayoutOptions;
+}
+
+// The quiet span after the last change, once it is long enough to count as a gap. It grows with
+// `now`, so it lives outside layout() and the renderer asks for it every frame.
+export function trailingGap(L: Layout, now: number): Gap | null {
+  const t0 = L.scale.lastKnot;
+  if (t0 === undefined || now - t0 <= L.options.gapThresholdMs) return null;
+  const id = `gap-${t0}`;
+  return { id, t0, t1: now, y0: L.scale.y(t0), y1: L.scale.y(now), expanded: L.options.expandedGaps.has(id), live: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -92,14 +104,22 @@ export interface Layout {
 interface Knot { t: number; y: number }
 
 export class TimeScale {
-  constructor(private knots: Knot[], readonly pxPerMs: number) {}
+  constructor(
+    private knots: Knot[],
+    readonly pxPerMs: number,
+    private tailCapPx: number, // after the last knot (live quiet tail): Infinity = linear
+  ) {}
+
+  get lastKnot(): number | undefined {
+    return this.knots.at(-1)?.t;
+  }
 
   y(t: number): number {
     const k = this.knots;
     if (k.length === 0) return 0;
     if (t <= k[0].t) return k[0].y - (k[0].t - t) * this.pxPerMs;
     const last = k[k.length - 1];
-    if (t >= last.t) return last.y + (t - last.t) * this.pxPerMs;
+    if (t >= last.t) return last.y + Math.min((t - last.t) * this.pxPerMs, this.tailCapPx);
     let lo = 0, hi = k.length - 1;
     while (hi - lo > 1) {
       const mid = (lo + hi) >> 1;
@@ -125,7 +145,7 @@ function buildScale(changeTimes: number[], o: LayoutOptions): { scale: TimeScale
       if (dt > o.gapThresholdMs) {
         const expanded = o.expandedGaps.has(id);
         const y0 = y;
-        y += expanded ? dt * pxPerMs : o.gapHeightPx;
+        y += (expanded ? dt : o.gapThresholdMs) * pxPerMs;
         gaps.push({ id, t0, t1, y0, y1: y, expanded });
       } else {
         y += dt * pxPerMs;
@@ -133,7 +153,9 @@ function buildScale(changeTimes: number[], o: LayoutOptions): { scale: TimeScale
     }
     knots.push({ t: times[i], y });
   }
-  return { scale: new TimeScale(knots, pxPerMs), gaps };
+  const last = times.at(-1);
+  const tailCap = last !== undefined && o.expandedGaps.has(`gap-${last}`) ? Infinity : o.gapThresholdMs * pxPerMs;
+  return { scale: new TimeScale(knots, pxPerMs, tailCap), gaps };
 }
 
 // ---------------------------------------------------------------------------
@@ -405,5 +427,5 @@ export function layout(all: AgentEvent[], o: LayoutOptions): Layout {
   ];
   const { scale, gaps } = buildScale(changes, o);
 
-  return { t0, lanes, segments, connectors, markers, gaps, columns, scale };
+  return { t0, lanes, segments, connectors, markers, gaps, columns, scale, options: o };
 }

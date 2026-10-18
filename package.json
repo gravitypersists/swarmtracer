@@ -10,7 +10,9 @@
     "seed": "tsx scripts/seed.ts",
     "test": "node --import tsx --test web/src/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "spike": "bash scripts/spike.sh"
+    "spike": "bash scripts/spike.sh",
+    "check:live": "npm run build && node scripts/check-live.mjs",
+    "replay": "tsx scripts/replay.ts"
   },
   "engines": {
     "node": ">=22"

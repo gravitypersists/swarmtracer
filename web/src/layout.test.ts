@@ -53,6 +53,17 @@ for (const [name, events] of Object.entries(fixtures)) {
       }
     }
   });
+  test(`${name}: history never moves as the run unfolds`, () => {
+    const full = layout(events, opts(events)).scale;
+    for (let n = 1; n < events.length; n++) {
+      const prefix = events.slice(0, n);
+      const partial = layout(prefix, opts(prefix)).scale;
+      for (const e of prefix) assert.equal(partial.y(e.ts), full.y(e.ts), `event ${e.id} after ${n} events`);
+      // The live tail at the moment the next event arrives is exactly where that event lands.
+      const next = events[n].ts;
+      assert.ok(Math.abs(partial.y(next) - full.y(next)) < 1e-9, `tail meets event ${events[n].id}`);
+    }
+  });
 }
 
 test("live lanes and tips stay open until their end arrives", () => {
@@ -75,7 +86,7 @@ test("a long quiet span compresses to a gap, and expands on request", () => {
   assert.equal(L.gaps.length, 1);
   const g = L.gaps[0];
   assert.ok(g.t1 - g.t0 > 30_000, "the 40s build is the gap");
-  assert.equal(L.scale.y(g.t1) - L.scale.y(g.t0), DEFAULT_OPTIONS.gapHeightPx);
+  assert.equal(L.scale.y(g.t1) - L.scale.y(g.t0), (DEFAULT_OPTIONS.gapThresholdMs / 1000) * DEFAULT_OPTIONS.pxPerSec);
 
   const open = layout(evs, opts(evs, { expandedGaps: new Set([g.id]) }));
   const px = open.scale.y(g.t1) - open.scale.y(g.t0);

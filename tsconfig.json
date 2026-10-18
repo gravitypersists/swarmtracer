@@ -19,6 +19,7 @@
   "include": [
     "server/src",
     "shared",
-    "web/src"
+    "web/src",
+    "scripts/*.ts"
   ]
 }

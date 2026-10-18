@@ -30,9 +30,12 @@ export function openDb(path: string) {
     VALUES (@ts, @client_ts, @run_id, @session_id, @agent_id, @parent_agent_id, @kind, @source, @payload)
   `);
   const byRun = db.prepare(`SELECT * FROM events WHERE run_id = ? AND seq > ? ORDER BY seq`);
+  const allAfter = db.prepare(`SELECT * FROM events WHERE seq > ? ORDER BY seq`);
+  const maxSeq = db.prepare(`SELECT COALESCE(MAX(seq), 0) AS seq FROM events`);
   const runs = db.prepare(`
     SELECT run_id, MIN(ts) AS started, MAX(ts) AS last, COUNT(*) AS events,
-           COUNT(DISTINCT agent_id) AS agents
+           COUNT(DISTINCT agent_id) AS agents,
+           MAX(kind = 'session_end' AND agent_id = run_id) AS ended
     FROM events GROUP BY run_id ORDER BY started DESC
   `);
 
@@ -49,6 +52,8 @@ export function openDb(path: string) {
     payload: JSON.parse(row.payload),
   });
 
+  const listeners = new Set<(e: AgentEvent) => void>();
+
   return {
     append(e: NewEvent): AgentEvent {
       const info = insert.run({
@@ -57,7 +62,21 @@ export function openDb(path: string) {
         parent_agent_id: e.parent_agent_id ?? null,
         payload: JSON.stringify(e.payload),
       });
-      return { ...e, id: String(info.lastInsertRowid) };
+      const event = { ...e, id: String(info.lastInsertRowid) };
+      for (const fn of listeners) fn(event);
+      return event;
+    },
+    // Listeners run synchronously inside append(), so subscribing and reading a backlog in the
+    // same tick can't miss or duplicate an event.
+    subscribe(fn: (e: AgentEvent) => void) {
+      listeners.add(fn);
+      return () => void listeners.delete(fn);
+    },
+    eventsAfter(seq: number): AgentEvent[] {
+      return allAfter.all(seq).map(toEvent);
+    },
+    maxSeq(): number {
+      return (maxSeq.get() as { seq: number }).seq;
     },
     events(runId: string, afterSeq = 0): AgentEvent[] {
       return byRun.all(runId, afterSeq).map(toEvent);
