@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SwarmTracer</title>
+<style>
+  :root { color-scheme: dark; --bg: #0d0f12; --fg: #c9d1d9; --dim: #6e7681; --line: #21262d; --link: #e3b341; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 12px/1.5 ui-monospace, Menlo, monospace; }
+  select { background: var(--line); color: var(--fg); border: 0; padding: 4px; font: inherit; }
+  table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+  td { padding: 2px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: top; }
+  td.d { white-space: normal; color: var(--dim); }
+  tr.link td { color: var(--link); }
+  .muted { color: var(--dim); }
+</style>
+</head>
+<body>
+<label>run <select id="run"></select></label> <span id="meta" class="muted"></span>
+<table><tbody id="rows"></tbody></table>
+<script>
+// M0 raw event log. Polls; SSE arrives in M2.
+const runSel = document.getElementById("run"), rows = document.getElementById("rows"), meta = document.getElementById("meta");
+let run = null, after = 0, t0 = 0;
+const short = (id) => id.length > 12 ? id.slice(0, 8) : id;
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+
+function detail(e) {
+  const p = e.payload;
+  if (e.kind === "link") return `parent ${short(e.parent_agent_id)} → child ${short(e.agent_id)} via ${p.method} (${p.tool_use_id})`;
+  const bits = [p.hook_event_name, p.tool_name, p.agent_type, p.tool_use_id];
+  if (p.tool_input?.description) bits.push(JSON.stringify(p.tool_input.description));
+  else if (p.tool_input?.command) bits.push(JSON.stringify(p.tool_input.command));
+  return bits.filter(Boolean).join(" · ");
+}
+
+async function loadRuns() {
+  const runs = await (await fetch("/runs")).json();
+  const cur = runSel.value;
+  runSel.innerHTML = runs.map((r) => `<option value="${r.run_id}">${new Date(r.started).toLocaleString()} · ${short(r.run_id)} · ${r.agents} agents · ${r.events} events</option>`).join("");
+  if (cur) runSel.value = cur;
+  if (!run && runs[0]) select(runs[0].run_id);
+}
+
+function select(id) { run = id; after = 0; t0 = 0; rows.innerHTML = ""; runSel.value = id; }
+runSel.onchange = () => select(runSel.value);
+
+async function poll() {
+  if (run) {
+    const events = await (await fetch(`/runs/${encodeURIComponent(run)}/events?after=${after}`)).json();
+    for (const e of events) {
+      t0 ||= e.ts;
+      after = Number(e.id);
+      const tr = document.createElement("tr");
+      if (e.kind === "link") tr.className = "link";
+      tr.innerHTML = `<td class="muted">${e.id}</td><td>+${((e.ts - t0) / 1000).toFixed(3)}s</td><td>${short(e.agent_id)}</td><td>${e.kind}</td><td class="d">${esc(detail(e))}</td>`;
+      rows.append(tr);
+    }
+    meta.textContent = `${after} events`;
+  }
+}
+
+loadRuns(); setInterval(loadRuns, 3000); setInterval(poll, 500);
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "name": "swarmtracer",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch server/src/index.ts",
+    "start": "tsx server/src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "spike": "bash scripts/spike.sh"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
