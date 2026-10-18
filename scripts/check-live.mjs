@@ -25,7 +25,8 @@ let failures = 0;
 const ok = (cond, msg) => { console.log(`${cond ? "PASS" : "FAIL"}  ${msg}`); if (!cond) failures++; };
 
 try {
-  run("npx", ["tsx", "server/src/index.ts"], { SWARMTRACER_PORT: String(PORT), SWARMTRACER_DB: join(tmp, "live.db") });
+  const store = { SWARMTRACER_DB: join(tmp, "live.db"), SWARMTRACER_ARTIFACTS: join(tmp, "artifacts") };
+  run("npx", ["tsx", "server/src/index.ts"], { SWARMTRACER_PORT: String(PORT), ...store });
   run(CHROME, ["--headless=new", "--disable-gpu", `--remote-debugging-port=${CDP}`, `--user-data-dir=${join(tmp, "chrome")}`, "--window-size=1000,800", "about:blank"]);
   await sleep(2500);
 
@@ -139,6 +140,31 @@ try {
   await js(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))`);
   await sleep(200);
   ok((await panel()) === null, "Escape closes the panel");
+
+  // M4: a recorded run with atl annotations (seeded with its artifact bytes).
+  await new Promise((r) => run("npx", ["tsx", "scripts/seed.ts", "fixtures/m4-annotations.json"], store).on("exit", r));
+  const m4 = JSON.parse(await import("node:fs").then((fs) => fs.readFileSync(join(root, "fixtures/m4-annotations.json"), "utf8")))[0].run_id;
+  await cdp("Page.navigate", { url: `http://127.0.0.1:${PORT}/?run=${m4}` });
+  await sleep(1500);
+  const glyphs = await js(`[...document.querySelectorAll(".marker-decision, .marker-artifact")].length`);
+  ok(glyphs === 2, `decision and artifact markers drawn (${glyphs})`);
+  await click(`document.querySelector("text.marker-decision")`);
+  await sleep(300);
+  text = await panel();
+  ok(/DECISION/i.test(text) && /Why/.test(text), "decision panel shows the choice and the reason");
+  await click(`document.querySelector("text.marker-artifact")`);
+  await sleep(800);
+  ok(await js(`(document.querySelector(".artifact-text")?.textContent ?? "").length > 200`), "artifact panel previews the file");
+  await shot("m4-artifact.png");
+  const href = await js(`document.querySelector("#panel-body a[href^='/artifacts/']").href`);
+  await click(`[...document.querySelectorAll(".lane-label")].find(e => e.textContent === "main")`);
+  await sleep(300);
+  ok(/Annotations/.test(await panel()), "lane panel lists its annotations");
+  await click(`document.querySelector("text.marker-decision")`);
+  await sleep(300);
+  await shot("m4-decision.png");
+  const hdr = await js(`fetch(${JSON.stringify(href)}).then(r => r.headers.get("content-security-policy"))`);
+  ok(/sandbox/.test(hdr ?? ""), "artifacts are served sandboxed");
   ws.close();
 } finally {
   for (const k of kids) k.kill();

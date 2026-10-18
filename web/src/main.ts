@@ -175,7 +175,16 @@ function showPanel() {
   if (excerpt && out && panelBody.dataset.key === key) out.innerHTML = excerpt;
   panelBody.dataset.key = key;
   panelBody.scrollTop = scroll;
+  for (const pre of panelBody.querySelectorAll<HTMLElement>("[data-preview]")) {
+    const src = pre.dataset.preview!;
+    if (previews.has(src)) { pre.textContent = previews.get(src)!; continue; }
+    fetch(src).then((r) => (r.ok ? r.text() : Promise.reject(r.status))).then(
+      (t) => { previews.set(src, t); pre.textContent = t; },
+      () => { pre.textContent = "Preview unavailable."; },
+    );
+  }
 }
+const previews = new Map<string, string>(); // artifacts are content-addressed, so cache forever
 
 panel.addEventListener("click", async (e) => {
   const t = e.target as HTMLElement;
@@ -184,6 +193,11 @@ panel.addEventListener("click", async (e) => {
   if (lane) {
     e.preventDefault();
     return select({ kind: "lane", id: lane });
+  }
+  const marker = t.closest("[data-open-marker]")?.getAttribute("data-open-marker");
+  if (marker) {
+    e.preventDefault();
+    return select({ kind: "marker", id: marker });
   }
   const btn = t.closest<HTMLButtonElement>("[data-excerpt]");
   if (btn) {
@@ -211,7 +225,7 @@ renderer.root.addEventListener("pointermove", (e) => {
     : "";
   const rows = ids.map((id) => byId.get(id)).filter(Boolean).map((ev) => {
     const p = ev!.payload as any;
-    const what = [p.hook_event_name ?? ev!.kind, p.tool_name, p.tool_input?.description ?? p.tool_input?.command]
+    const what = [p.hook_event_name ?? ev!.kind, p.tool_name, p.tool_input?.description ?? p.tool_input?.command ?? p.name ?? p.text]
       .filter(Boolean).map((x) => esc(String(x).slice(0, 80))).join(" · ");
     return `<div><span class="dim">#${ev!.id} +${((ev!.ts - t0) / 1000).toFixed(2)}s</span> ${what}</div>`;
   });

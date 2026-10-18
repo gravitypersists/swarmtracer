@@ -8,7 +8,7 @@
     "build": "esbuild web/src/main.ts --bundle --format=esm --sourcemap --outfile=web/dist/app.js",
     "start": "npm run build && tsx server/src/index.ts",
     "seed": "tsx scripts/seed.ts",
-    "test": "node --import tsx --test web/src/*.test.ts",
+    "test": "node --import tsx --test web/src/*.test.ts server/src/*.test.ts",
     "typecheck": "tsc --noEmit",
     "spike": "bash scripts/spike.sh",
     "check:live": "npm run build && node scripts/check-live.mjs",

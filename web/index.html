@@ -44,6 +44,11 @@
   .badge-generating { background: var(--gen); color: var(--bg); } .badge-tool { background: var(--tool); color: var(--bg); }
   .badge-waiting_on_child { background: var(--wait); color: var(--bg); } .badge-error { background: var(--err); color: var(--bg); }
   .err { color: var(--err); }
+  .badge-note { background: var(--fg); color: var(--bg); } .badge-decision { background: var(--wait); color: var(--bg); }
+  .badge-artifact { background: var(--tool); color: var(--bg); } .badge-blocked { background: var(--err); color: var(--bg); }
+  .annotations li { margin: 4px 0; } .annotations a span { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+  span.marker-note { color: var(--fg); } span.marker-decision { color: var(--wait); } span.marker-artifact { color: var(--tool); } span.marker-blocked { color: var(--err); }
+  .artifact-img { max-width: 100%; border: 1px solid var(--rule); border-radius: 4px; margin-top: 8px; background: #fff; }
   .bar { display: flex; height: 8px; border-radius: 2px; overflow: hidden; margin: 8px 0; gap: 1px; }
   .bar-generating { background: var(--gen); } .bar-tool { background: var(--tool); } .bar-waiting_on_child { background: var(--wait); }
   .bar-idle { background: var(--idle); } .bar-sleeping { background: var(--sleep); }
@@ -78,8 +83,10 @@
   .cap { stroke: var(--fg); stroke-width: 2; }
   .cap-failed { stroke: var(--err); }
   .cap-truncated { stroke: var(--dim); stroke-dasharray: 2 2; }
-  .marker { text-anchor: end; font-size: 11px; fill: var(--dim); cursor: default; }
+  .marker { font-size: 11px; fill: var(--dim); }
   .marker-error { fill: var(--err); } .marker-permission { fill: var(--perm); }
+  .marker-note { fill: var(--fg); font-size: 9px; } .marker-decision { fill: var(--wait); }
+  .marker-artifact { fill: var(--tool); } .marker-blocked { fill: var(--err); }
 
   .gap-live { fill: #ffffff04; }
   .now-line { stroke: var(--gen); stroke-width: 1; opacity: .5; }
@@ -104,6 +111,7 @@
     <span><svg width="10" height="12"><rect width="10" height="12" fill="#58a6ff33" stroke="var(--tool)"/></svg>tool</span>
     <span><svg width="10" height="12"><line x1="5" x2="5" y1="0" y2="12" stroke="var(--wait)" stroke-width="2" stroke-dasharray="4 3"/></svg>waiting on child</span>
     <span><svg width="10" height="12"><line x1="5" x2="5" y1="1" y2="12" stroke="var(--sleep)" stroke-width="2" stroke-dasharray="1 4" stroke-linecap="round"/></svg>idle / sleeping</span>
+    <span><b style="color:var(--fg)">●</b> note <b style="color:var(--wait)">◆</b> decision <b style="color:var(--tool)">▣</b> artifact <b style="color:var(--err)">■</b> blocked</span>
   </div>
 </header>
 <div id="body">

@@ -1,0 +1,19 @@
+# SwarmTracer: Top 3 Risks (ranked)
+
+## 1. Parent/child correlation may not be possible reliably (BRIEF 5.1)
+
+**Why it matters:** The whole view (connectors, "who waits on whom", run_id inheritance) depends on linking a spawn tool call to the child session. The brief assumes either a direct payload field or that hooks can rewrite tool input. Neither is confirmed. The timing heuristic fails with parallel spawns, which is the core use case.
+
+**Mitigation:** Do M0 first and resolve the VERIFY items against current hook docs before writing other code. Test with 3 parallel subagents. If no direct link exists, try the prompt-injected `[atl:corr=<id>]` token. Keep the timing heuristic as a labeled low-confidence fallback, and design the layout engine to render unlinked lanes gracefully.
+
+## 2. Ground-truth state derivation rests on unverified hook and transcript assumptions (sections 2, 3.1)
+
+**Why it matters:** Generating vs. tool vs. waiting segments are inferred from PreToolUse/PostToolUse/Stop ordering. The hook names, payload fields, subagent start/stop events, and the tool name for spawning are all unconfirmed. Parallel tool calls, interrupts, or missing Stop events would produce wrong segments. Transcript JSONL format and thinking visibility (raw, summarized, or absent) are also unknown, which could gut the inspectability goal (M3). Server-receipt timestamps add latency and ordering skew, especially with fire-and-forget POSTs.
+
+**Mitigation:** Record real sessions as fixtures early and check the derived state machine against them, including parallel tools and aborted runs. Treat unmatched or missing end events as open-ended and close them on session end. Scope M3 to whatever transcript content actually exists. Record hook-side timestamps as `client_ts` and use them to detect ordering skew.
+
+## 3. Agent-authored annotations and session identity are unreliable (sections 3.3, 5.1)
+
+**Why it matters:** `atl` needs the session ID from an env var that Claude Code may not expose to shell children. Without it, markers cannot be attached to the right lane. Agents may also skip annotating or over-annotate, so the annotation layer may be sparse or noisy.
+
+**Mitigation:** Verify early whether the session ID reaches child shell processes. If not, fall back to the correlation token or to matching the most recent active session by working directory and timing. Keep the skill short with four verbs. Treat annotations as optional enrichment so the timeline is useful with zero annotations.

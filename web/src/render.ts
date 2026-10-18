@@ -1,7 +1,7 @@
 // Keyed SVG renderer. Elements are created on first sight, touched only when an attribute
 // changes, and removed when they leave the view. Geometry comes from layout.ts.
 
-import { trailingGap, type Gap, type Layout, type Segment, type SegmentState } from "./layout.ts";
+import { ANNOTATIONS, trailingGap, type Gap, type Layout, type MarkerKind, type Segment, type SegmentState } from "./layout.ts";
 
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -22,6 +22,10 @@ const STATE_CLASS: Record<SegmentState, string> = {
 };
 
 type Attrs = Record<string, string | number>;
+
+export const GLYPH: Record<MarkerKind, string> = {
+  prompt: "▸", permission: "◇", error: "✕", note: "●", decision: "◆", artifact: "▣", blocked: "■",
+};
 
 export class Renderer {
   private els = new Map<string, { el: SVGElement; attrs: Attrs; text?: string }>();
@@ -119,17 +123,25 @@ export class Renderer {
       }
     }
 
-    // Markers sit just left of their lane.
+    // Harness markers sit left of their lane, agent annotations right. Markers too close to the
+    // previous one on the same side step outward instead of overlapping.
+    const lastY = new Map<string, { y: number; step: number }>();
     for (const m of L.markers) {
       const my = y(m.ts);
-      if (!visible(my, my)) continue;
       const x = laneX.get(m.laneId);
       if (x === undefined) continue;
-      const glyph = { prompt: "▸", permission: "◆", error: "✕" }[m.kind];
+      const right = ANNOTATIONS.has(m.kind);
+      const side = `${m.laneId}:${right ? "r" : "l"}`;
+      const prev = lastY.get(side);
+      const step = prev && my - prev.y < 12 ? prev.step + 1 : 0;
+      lastY.set(side, { y: my, step });
+      if (!visible(my, my)) continue;
+      const offset = GEOMETRY.barWidth / 2 + 5 + step * 11;
       this.put(m.id, "text", this.layers.marks, {
-        x: x - GEOMETRY.barWidth - 4, y: my + 4, "data-ids": m.eventIds.join(","), "data-marker": m.id,
+        x: right ? x + offset : x - offset, y: my + 4, "text-anchor": right ? "start" : "end",
+        "data-ids": m.eventIds.join(","), "data-marker": m.id,
         class: `marker marker-${m.kind}${this.selected === m.id ? " selected" : ""}`,
-      }, glyph);
+      }, GLYPH[m.kind]);
     }
 
     this.tick(now, live);

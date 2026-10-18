@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+// atl: annotate the current Claude Code session in SwarmTracer. One shell call per annotation.
+//
+//   atl note "text"
+//   atl decision "chose B" --why "A requires a migration"
+//   atl artifact ./path/to/file ["what it is"]
+//   atl blocked "waiting on API key from user"
+//
+// The session comes from CLAUDE_CODE_SESSION_ID (set by Claude Code for Bash) or --session.
+// Which agent is calling is worked out by the server from the Bash call that ran this command.
+// If the server isn't running, the annotation is dropped with a warning and the exit code is 0:
+// observability must never break the agent. Usage mistakes exit 1 so the agent can fix them.
+import { readFileSync, statSync } from "node:fs";
+import { basename, extname, resolve } from "node:path";
+
+const USAGE = `usage:
+  atl note "text"
+  atl decision "what you chose" --why "the reason"
+  atl artifact <path> ["what it is"]
+  atl blocked "what you are waiting on"`;
+const VERBS = new Set(["note", "decision", "artifact", "blocked"]);
+const MAX_ARTIFACT = 10 * 1024 * 1024;
+const MIME = {
+  ".md": "text/markdown", ".txt": "text/plain", ".json": "application/json", ".csv": "text/csv",
+  ".html": "text/html", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf",
+  ".ts": "text/plain", ".js": "text/plain", ".py": "text/plain", ".sh": "text/plain", ".log": "text/plain",
+};
+
+function fail(msg) {
+  console.error(`atl: ${msg}\n${USAGE}`);
+  process.exit(1);
+}
+
+const argv = process.argv.slice(2);
+const flags = {};
+const positional = [];
+for (let i = 0; i < argv.length; i++) {
+  const a = argv[i];
+  if (a === "-h" || a === "--help") { console.log(USAGE); process.exit(0); }
+  if (a.startsWith("--")) {
+    const [k, v] = a.includes("=") ? a.slice(2).split(/=(.*)/s) : [a.slice(2), argv[++i]];
+    if (v === undefined) fail(`--${k} needs a value`);
+    flags[k] = v;
+  } else positional.push(a);
+}
+const [verb, subject, extra] = positional;
+if (!VERBS.has(verb)) fail(verb ? `unknown verb "${verb}"` : "missing verb");
+if (!subject) fail(`${verb} needs ${verb === "artifact" ? "a file path" : "some text"}`);
+if (verb === "decision" && !flags.why) fail(`decision needs --why "the reason"`);
+
+const session = flags.session ?? process.env.CLAUDE_CODE_SESSION_ID;
+if (!session) fail("no session: run this from a Claude Code Bash call, or pass --session <id>");
+
+const port = process.env.SWARMTRACER_PORT ?? "47821";
+const base = `http://127.0.0.1:${port}`;
+const common = { session_id: session, cwd: process.cwd(), argv, client_ts: Date.now() };
+
+let url, body;
+if (verb === "artifact") {
+  const path = resolve(subject);
+  let size;
+  try { size = statSync(path).size; } catch { fail(`can't read ${subject}`); }
+  if (size > MAX_ARTIFACT) fail(`${subject} is ${size} bytes; the limit is ${MAX_ARTIFACT}`);
+  url = `${base}/artifacts`;
+  body = {
+    ...common, kind: "artifact", path, name: basename(path), text: extra ?? flags.note ?? "",
+    mime: MIME[extname(path).toLowerCase()] ?? "application/octet-stream",
+    content_b64: readFileSync(path).toString("base64"),
+  };
+} else {
+  url = `${base}/events`;
+  body = { ...common, source: "cli", kind: verb, text: subject, ...(flags.why ? { why: flags.why } : {}) };
+}
+
+try {
+  const res = await fetch(url, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(2000),
+  });
+  if (!res.ok) console.error(`atl: server answered ${res.status}; ${verb} not recorded`);
+  else console.log(`atl: ${verb} recorded`);
+} catch {
+  console.error(`atl: SwarmTracer isn't reachable on ${base}; ${verb} not recorded`);
+}

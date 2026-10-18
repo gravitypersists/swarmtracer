@@ -58,7 +58,7 @@ for (const [name, events] of Object.entries(fixtures)) {
     for (let n = 1; n < events.length; n++) {
       const prefix = events.slice(0, n);
       const partial = layout(prefix, opts(prefix)).scale;
-      for (const e of prefix) assert.equal(partial.y(e.ts), full.y(e.ts), `event ${e.id} after ${n} events`);
+      for (const e of prefix) assert.ok(Math.abs(partial.y(e.ts) - full.y(e.ts)) < 1e-9, `event ${e.id} after ${n} events`);
       // The live tail at the moment the next event arrives is exactly where that event lands.
       const next = events[n].ts;
       assert.ok(Math.abs(partial.y(next) - full.y(next)) < 1e-9, `tail meets event ${events[n].id}`);

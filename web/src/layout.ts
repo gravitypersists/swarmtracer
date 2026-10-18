@@ -40,7 +40,9 @@ export interface Connector {
   eventIds: string[];
 }
 
-export type MarkerKind = "prompt" | "permission" | "error";
+export type MarkerKind = "prompt" | "permission" | "error" | AnnotationKind;
+export type AnnotationKind = "note" | "decision" | "artifact" | "blocked";
+export const ANNOTATIONS = new Set<string>(["note", "decision", "artifact", "blocked"]);
 
 export interface Marker {
   id: string;
@@ -508,6 +510,9 @@ export function layout(all: AgentEvent[], o: LayoutOptions): Layout {
     } else if (h === "PostToolUseFailure" || h === "StopFailure") {
       kind = "error";
       text = String(e.payload.error ?? h);
+    } else if (ANNOTATIONS.has(e.kind)) {
+      kind = e.kind as AnnotationKind;
+      text = String(e.kind === "artifact" ? e.payload.name ?? "" : e.payload.text ?? "");
     }
     if (kind) markers.push({ id: `m:${e.id}`, laneId: e.agent_id, kind, ts: e.ts, text, eventIds: [e.id] });
   }

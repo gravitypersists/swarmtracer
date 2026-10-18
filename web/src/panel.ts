@@ -2,7 +2,7 @@
 import type { AgentEvent } from "../../shared/events.ts";
 import type { ReasoningBlock } from "../../shared/transcript.ts";
 import { subagentTranscriptPath } from "../../shared/transcript.ts";
-import type { Lane, Layout, Segment, SegmentState } from "./layout.ts";
+import { ANNOTATIONS, type Lane, type Layout, type Segment, type SegmentState } from "./layout.ts";
 import { fmtDur } from "./render.ts";
 
 export type Selection = { kind: "segment" | "lane" | "marker"; id: string };
@@ -30,12 +30,40 @@ export function renderPanel(sel: Selection, c: Ctx): string {
     const m = c.L.markers.find((x) => x.id === sel.id);
     if (!m) return "";
     const lane = c.L.lanes.find((l) => l.id === m.laneId);
+    const ev = c.byId.get(m.eventIds[0]);
+    if (ev && ANNOTATIONS.has(ev.kind)) return annotationPanel(ev, lane, c);
     return `<header><span class="badge badge-${m.kind}">${m.kind}</span><h2>${lane ? laneLink(lane) : ""}</h2>
       <p class="dim">${when(c, m.ts)}</p></header><pre class="body">${esc(clip(m.text))}</pre>`;
   }
   const seg = c.L.segments.find((s) => s.id === sel.id);
   return seg ? segmentPanel(seg, c) : "";
 }
+
+const ANNOTATION_LABEL: Record<string, string> = { note: "note", decision: "decision", artifact: "artifact", blocked: "blocked" };
+
+function annotationPanel(ev: AgentEvent, lane: Lane | undefined, c: Ctx): string {
+  const p = ev.payload as any;
+  const head = `<header><span class="badge badge-${ev.kind}">${ANNOTATION_LABEL[ev.kind]}</span>
+    <h2>${lane ? laneLink(lane) : ""}</h2><p class="dim">${when(c, ev.ts)}${p.resolved_by === "recent" ? " · lane matched by timing, not by command" : p.resolved_by === "none" ? " · no calling agent found; shown on the main lane" : ""}</p></header>`;
+  if (ev.kind === "artifact") {
+    return head + `${p.text ? `<div class="prose">${esc(p.text)}</div>` : ""}
+      <p><a href="/artifacts/${esc(p.sha256)}" target="_blank" rel="noopener">${esc(p.name)}</a> <span class="dim">${fmtBytes(p.size)} · ${esc(p.mime)}</span></p>
+      <p class="dim">${esc(p.path)}</p>${artifactPreview(p)}`;
+  }
+  return head + `<div class="prose">${esc(p.text)}</div>${p.why ? `<h3>Why</h3><div class="prose">${esc(p.why)}</div>` : ""}`;
+}
+
+// Images inline; text-like files are fetched into a <pre> by main.ts; anything else is a link.
+function artifactPreview(p: any): string {
+  const mime = String(p.mime ?? "");
+  if (mime.startsWith("image/")) return `<img class="artifact-img" src="/artifacts/${esc(p.sha256)}" alt="${esc(p.name)}">`;
+  if ((mime.startsWith("text/") || mime === "application/json") && p.size <= 256 * 1024) {
+    return `<pre class="artifact-text" data-preview="/artifacts/${esc(p.sha256)}">Loading…</pre>`;
+  }
+  return "";
+}
+
+const fmtBytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 
 function segmentPanel(s: Segment, c: Ctx): string {
   const lane = c.L.lanes.find((l) => l.id === s.laneId)!;
@@ -120,6 +148,7 @@ function lanePanel(lane: Lane, c: Ctx): string {
   const legend = [...totals].sort((a, b) => b[1] - a[1])
     .map(([st, ms]) => `<li><i class="bar-${st}"></i>${STATE_LABEL[st]} <b>${fmtDur(ms)}</b> <span class="dim">${Math.round((ms / span) * 100)}%</span></li>`).join("");
   const kids = c.L.lanes.filter((l) => l.parentId === lane.id);
+  const notes = c.L.markers.filter((m) => m.laneId === lane.id && ANNOTATIONS.has(m.kind));
 
   return `<header>
       <span class="badge">${lane.parentId ? "subagent" : "main"}</span>
@@ -129,6 +158,11 @@ function lanePanel(lane: Lane, c: Ctx): string {
     <div class="bar">${bar}</div><ul class="breakdown">${legend}</ul>
     ${spawn ? `<h3>Task</h3><pre class="body">${esc(clip(String((spawn.payload.tool_input as any)?.prompt ?? "")))}</pre>` : ""}
     ${result ? `<h3>${lane.parentId ? "Handed back" : "Last reply"}</h3><div class="prose">${esc(clip(String(result)))}</div>` : ""}
+    ${notes.length ? `<h3>Annotations</h3><ul class="annotations">${notes.map((m) => {
+      const ev = c.byId.get(m.eventIds[0])!;
+      const why = (ev.payload as any).why;
+      return `<li><a href="#" data-open-marker="${esc(m.id)}"><span class="marker-${m.kind}">${m.kind}</span></a> <span class="dim">${when(c, m.ts)}</span> ${esc(m.text)}${why ? ` <span class="dim">— ${esc(why)}</span>` : ""}</li>`;
+    }).join("")}</ul>` : ""}
     ${kids.length ? `<h3>Subagents</h3><ul>${kids.map((k) => `<li>${laneLink(k)} <span class="dim">${fmtDur((k.end ?? c.now) - k.start)}</span></li>`).join("")}</ul>` : ""}`;
 }
 

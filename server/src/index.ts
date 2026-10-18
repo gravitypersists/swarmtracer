@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 import type { AgentEvent } from "../../shared/events.ts";
 import { openDb } from "./db.ts";
 import { isHookInput, normalizeHook, type HookInput } from "./normalize.ts";
@@ -8,6 +9,7 @@ import { createCorrelator } from "./correlate.ts";
 import { createTranscripts } from "./transcripts.ts";
 import { subagentTranscriptPath } from "../../shared/transcript.ts";
 import { readTranscriptExcerpt } from "./excerpt.ts";
+import { createAnnotations, isCliRequest } from "./annotations.ts";
 
 const PORT = Number(process.env.SWARMTRACER_PORT ?? 47821);
 const DB_PATH = process.env.SWARMTRACER_DB ?? fileURLToPath(new URL("../../data/swarmtracer.db", import.meta.url));
@@ -16,6 +18,9 @@ const VERBOSE = process.env.SWARMTRACER_VERBOSE === "1";
 const db = openDb(DB_PATH);
 const correlator = createCorrelator(db, (msg) => console.log(`[correlate] ${msg}`));
 const transcripts = createTranscripts(db.sql, db);
+const ARTIFACT_DIR = process.env.SWARMTRACER_ARTIFACTS ?? `${dirname(DB_PATH)}/artifacts`;
+const annotations = createAnnotations(db, ARTIFACT_DIR);
+const MAX_BODY = 16 * 1024 * 1024; // a 10 MB artifact, base64-encoded, plus room
 const WEB = new URL("../../web/", import.meta.url);
 // Read per request so `npm run dev` picks up rebuilt bundles without a restart.
 const STATIC: Record<string, [string, string]> = {
@@ -27,9 +32,14 @@ const STATIC: Record<string, [string, string]> = {
 
 function ingest(body: unknown, ts: number) {
   for (const item of Array.isArray(body) ? body : [body]) {
-    if (!isHookInput(item)) continue; // CLI events arrive in M4
+    if (isCliRequest(item)) {
+      annotations.record(item, ts);
+      continue;
+    }
+    if (!isHookInput(item)) continue;
     db.append(normalizeHook(item, ts));
     correlator.observe(item);
+    annotations.observe(item);
     trackTranscripts(item);
     if (VERBOSE) console.log(`[event] ${item.hook_event_name} ${item.agent_id ?? "root"} ${item.tool_name ?? ""}`);
   }
@@ -49,6 +59,27 @@ function trackTranscripts(h: HookInput) {
   }
   if (h.hook_event_name === "StopFailure" && sub) transcripts.finish(sub, h.session_id);
   if (h.hook_event_name === "SessionEnd") transcripts.finish(h.transcript_path, h.session_id);
+}
+
+// Served sandboxed and never as HTML, so an uploaded page or SVG can't run script in our origin.
+function serveArtifact(sha: string, res: ServerResponse) {
+  const row = db.sql.prepare(`SELECT payload FROM events WHERE kind = 'artifact' AND json_extract(payload, '$.sha256') = ? LIMIT 1`).get(sha) as { payload: string } | undefined;
+  if (!row) return void res.writeHead(404).end();
+  const meta = JSON.parse(row.payload);
+  let body: Buffer;
+  try {
+    body = readFileSync(`${ARTIFACT_DIR}/${sha}`);
+  } catch {
+    return void res.writeHead(404).end();
+  }
+  const mime = String(meta.mime ?? "application/octet-stream");
+  res.writeHead(200, {
+    "content-type": mime === "text/html" ? "text/plain; charset=utf-8" : mime.startsWith("text/") ? `${mime}; charset=utf-8` : mime,
+    "content-security-policy": "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+    "x-content-type-options": "nosniff",
+    "content-disposition": `inline; filename="${String(meta.name ?? sha).replace(/["\\\r\n]/g, "_")}"`,
+  });
+  res.end(body);
 }
 
 function json(res: ServerResponse, value: unknown) {
@@ -82,7 +113,14 @@ function onStream(req: IncomingMessage, res: ServerResponse, url: URL) {
 function onEvents(req: IncomingMessage, res: ServerResponse) {
   const ts = Date.now(); // stamp on receipt, before reading the body
   const chunks: Buffer[] = [];
-  req.on("data", (c) => chunks.push(c));
+  let size = 0;
+  req.on("data", (c: Buffer) => {
+    size += c.length;
+    if (size > MAX_BODY) {
+      res.writeHead(413).end();
+      req.destroy();
+    } else chunks.push(c);
+  });
   req.on("end", () => {
     // Answer first: hooks wait on this response.
     res.writeHead(204).end();
@@ -98,7 +136,9 @@ const server = createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   const runMatch = url.pathname.match(/^\/runs\/([^/]+)\/events$/);
 
-  if (req.method === "POST" && url.pathname === "/events") return onEvents(req, res);
+  if (req.method === "POST" && (url.pathname === "/events" || url.pathname === "/artifacts")) return onEvents(req, res);
+  const artifact = req.method === "GET" && url.pathname.match(/^\/artifacts\/([0-9a-f]{64})$/);
+  if (artifact) return serveArtifact(artifact[1], res);
   if (req.method === "GET" && url.pathname === "/stream") return onStream(req, res, url);
   if (req.method === "GET" && url.pathname === "/runs") return json(res, db.runs());
   if (req.method === "GET" && url.pathname === "/transcript") {
