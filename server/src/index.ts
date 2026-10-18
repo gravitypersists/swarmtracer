@@ -11,7 +11,14 @@ const VERBOSE = process.env.SWARMTRACER_VERBOSE === "1";
 
 const db = openDb(DB_PATH);
 const correlator = createCorrelator(db, (msg) => console.log(`[correlate] ${msg}`));
-const indexHtml = readFileSync(new URL("../static/index.html", import.meta.url));
+const WEB = new URL("../../web/", import.meta.url);
+// Read per request so `npm run dev` picks up rebuilt bundles without a restart.
+const STATIC: Record<string, [string, string]> = {
+  "/": ["index.html", "text/html; charset=utf-8"],
+  "/log": ["log.html", "text/html; charset=utf-8"],
+  "/app.js": ["dist/app.js", "text/javascript; charset=utf-8"],
+  "/app.js.map": ["dist/app.js.map", "application/json"],
+};
 
 function ingest(body: unknown, ts: number) {
   for (const item of Array.isArray(body) ? body : [body]) {
@@ -51,9 +58,16 @@ const server = createServer((req, res) => {
   if (req.method === "GET" && runMatch) {
     return json(res, db.events(decodeURIComponent(runMatch[1]), Number(url.searchParams.get("after") ?? 0)));
   }
-  if (req.method === "GET" && url.pathname === "/") {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    return res.end(indexHtml);
+  const file = req.method === "GET" ? STATIC[url.pathname] : undefined;
+  if (file) {
+    try {
+      const body = readFileSync(new URL(file[0], WEB));
+      res.writeHead(200, { "content-type": file[1], "cache-control": "no-store" });
+      return res.end(body);
+    } catch {
+      res.writeHead(404).end(`${file[0]} missing; run npm run build`);
+      return;
+    }
   }
   res.writeHead(404).end();
 });

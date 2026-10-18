@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const adapter = fileURLToPath(new URL("./adapter.sh", import.meta.url));
 const EVENTS = [
   "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "StopFailure",
-  "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest",
+  "PreToolUse", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionRequest",
   "SubagentStart", "SubagentStop",
 ];
 

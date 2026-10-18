@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch server/src/index.ts",
-    "start": "tsx server/src/index.ts",
+    "dev": "npm run build -- --watch=forever & tsx watch server/src/index.ts",
+    "build": "esbuild web/src/main.ts --bundle --format=esm --sourcemap --outfile=web/dist/app.js",
+    "start": "npm run build && tsx server/src/index.ts",
+    "seed": "tsx scripts/seed.ts",
+    "test": "node --import tsx --test web/src/*.test.ts",
     "typecheck": "tsc --noEmit",
     "spike": "bash scripts/spike.sh"
   },
@@ -18,6 +21,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
+    "esbuild": "^0.25.10",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }

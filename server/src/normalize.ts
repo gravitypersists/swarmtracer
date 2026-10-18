@@ -43,6 +43,8 @@ function kindFor(h: HookInput): EventKind {
     case "PostToolUse":
     case "PostToolUseFailure":
       return "tool_end";
+    case "PostToolBatch":
+      return "tool_batch_end";
     case "PermissionRequest":
       return "permission_wait";
     default:

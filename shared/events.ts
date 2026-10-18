@@ -7,6 +7,7 @@ export type EventKind =
   | "turn_end" // Stop / StopFailure: the agent finished responding and is idle
   | "tool_start"
   | "tool_end"
+  | "tool_batch_end" // PostToolBatch: every call in the batch resolved, including denied ones
   | "spawn" // PreToolUse of the Agent tool: parent spawned a child
   | "link" // server-resolved parent/child correlation
   | "permission_wait" // PermissionRequest: blocked on the human

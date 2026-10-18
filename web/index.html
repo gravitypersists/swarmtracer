@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SwarmTracer</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0d10; --panel: #12151a; --fg: #c9d1d9; --dim: #6e7681; --rule: #1b1f26;
+    --gen: #f2cc60; --tool: #58a6ff; --wait: #bc8cff; --idle: #3d444d; --sleep: #768390;
+    --conn: #8b949e; --err: #f85149; --perm: #e3b341;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--fg); font: 12px/1.4 ui-monospace, "SF Mono", Menlo, monospace; display: flex; flex-direction: column; }
+  header { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--panel); }
+  header h1 { font-size: 12px; margin: 0; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+  select, input { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 3px 6px; max-width: 100%; }
+  #summary { color: var(--dim); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; color: var(--dim); margin-left: auto; }
+  .legend svg { vertical-align: middle; margin-right: 4px; }
+  #timeline { flex: 1; overflow: auto; }
+
+  .tick { stroke: var(--rule); }
+  .tick-label { fill: var(--dim); text-anchor: end; font-size: 10px; }
+  .gap { fill: #ffffff05; stroke: var(--rule); stroke-dasharray: 2 4; cursor: zoom-in; }
+  .gap-open { fill: #ffffff02; cursor: zoom-out; }
+  .gap-label { fill: var(--dim); font-size: 11px; cursor: pointer; }
+
+  .seg-gen { fill: var(--gen); }
+  .seg-tool { fill: url(#hatch); stroke: var(--tool); stroke-width: 1; }
+  .hatch-bg { fill: #58a6ff22; } .hatch-line { stroke: var(--tool); stroke-width: 1.5; }
+  .seg-wait { stroke: var(--wait); stroke-width: 2; stroke-dasharray: 5 4; }
+  .seg-idle { stroke: var(--idle); stroke-width: 2; stroke-dasharray: 1 5; stroke-linecap: round; }
+  .seg-sleep { stroke: var(--sleep); stroke-width: 2; stroke-dasharray: 1 4; stroke-linecap: round; }
+  .seg:hover { filter: brightness(1.4); }
+
+  .conn { fill: none; stroke: var(--conn); stroke-width: 1.25; opacity: .7; }
+  .conn-return { stroke-dasharray: 3 3; }
+  .lane-label { fill: var(--fg); text-anchor: middle; font-size: 11px; }
+  .lane-label.root { font-weight: 700; }
+  .cap { stroke: var(--fg); stroke-width: 2; }
+  .cap-failed { stroke: var(--err); }
+  .cap-truncated { stroke: var(--dim); stroke-dasharray: 2 2; }
+  .marker { text-anchor: end; font-size: 11px; fill: var(--dim); cursor: default; }
+  .marker-error { fill: var(--err); } .marker-permission { fill: var(--perm); }
+
+  #tip { position: fixed; z-index: 10; max-width: min(520px, calc(100vw - 16px)); padding: 8px 10px; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; pointer-events: none; box-shadow: 0 6px 24px #0008; }
+  #tip div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dim { color: var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>SwarmTracer</h1>
+  <select id="run" aria-label="Run"></select>
+  <label>zoom <input id="zoom" type="range" min="2" max="120" value="24" aria-label="Pixels per second"></label>
+  <span id="summary"></span>
+  <div class="legend">
+    <span><svg width="10" height="12"><rect width="10" height="12" fill="var(--gen)"/></svg>generating</span>
+    <span><svg width="10" height="12"><rect width="10" height="12" fill="#58a6ff33" stroke="var(--tool)"/></svg>tool</span>
+    <span><svg width="10" height="12"><line x1="5" x2="5" y1="0" y2="12" stroke="var(--wait)" stroke-width="2" stroke-dasharray="4 3"/></svg>waiting on child</span>
+    <span><svg width="10" height="12"><line x1="5" x2="5" y1="1" y2="12" stroke="var(--sleep)" stroke-width="2" stroke-dasharray="1 4" stroke-linecap="round"/></svg>idle / sleeping</span>
+  </div>
+</header>
+<main id="timeline"></main>
+<div id="tip" hidden></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
