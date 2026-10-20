@@ -1,6 +1,34 @@
 # SwarmTracer
 
-A live, browser-based timeline of Claude Code runs, including subagents. Time flows down, each agent is a lane, and lanes grow while agents work. See `BRIEF.md` for the design and `docs/` for per-milestone notes and screenshots.
+**See what your Claude Code agents are doing, while they do it.**
+
+When Claude Code fans work out to subagents, the terminal only shows you the parent. SwarmTracer draws every agent as a lane on a live timeline in your browser. Time flows down, lanes grow while agents work, and you can see at a glance who is thinking, who is running a tool, and who is waiting on whom.
+
+![An Opus agent spawns a Haiku scout and a Sonnet reader; their lanes grow live, then the Sonnet lane's details open](docs/swarmtracer.gif)
+
+*Above: an Opus session hands work to a Haiku scout and a Sonnet reader. Each running agent gets a robot at its lane's tip, and clicking a lane shows its task and what it handed back.*
+
+## What you get
+
+- **A lane per agent**, linked to the agent that spawned it, colored by what it's doing: generating, running a tool, waiting on a child, or idle.
+- **A summary strip** with each agent's model, wall time, and time breakdown.
+- **Click anything for details**: the task an agent was given, its result, the reasoning behind a segment, the exact tool call.
+- **Annotations**: agents can drop notes, decisions, artifacts and "I'm blocked" markers on their own lane with the `atl` command.
+- **Local only**: a small Node server on `127.0.0.1` fed by Claude Code hooks, with no account and no cloud service.
+
+## Quick start
+
+You need Node 22+ and Claude Code.
+
+```sh
+git clone https://github.com/gravitypersists/swarmtracer.git
+npm install --prefix swarmtracer
+claude --plugin-dir ./swarmtracer
+```
+
+Ask Claude to do something that uses subagents, and the timeline opens on its own when the first one spawns. To try it with no live session, run `npm start` and `npm run replay -- fixtures/m5-mixed-models.json` in the repo, then open http://127.0.0.1:47821. That replays the run in the GIF.
+
+See `BRIEF.md` for the design and `docs/` for per-milestone notes and screenshots.
 
 ## Run it by hand
 
