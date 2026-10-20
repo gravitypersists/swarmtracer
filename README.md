@@ -94,3 +94,7 @@ atl blocked "waiting on API key from user"
 - `npm test`: unit tests (layout against recorded runs, annotation matching).
 - `npm run check:live`: replays a run into a fresh server and drives headless Chrome through the live view, panels and annotations.
 - `npm run replay -- fixtures/<run>.json --speed 4`: watch a recorded run live, using no usage.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

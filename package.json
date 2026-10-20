@@ -2,6 +2,7 @@
   "name": "swarmtracer",
   "version": "0.0.1",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "npm run build -- --watch=forever & tsx watch server/src/index.ts",
