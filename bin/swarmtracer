@@ -5,10 +5,12 @@
 //   swarmtracer stop              stop a server this command started
 //   swarmtracer status            print the URL, runs, and open pages
 //   swarmtracer open [run]        open the page (at a run: default this Claude Code session)
+//                                 [--app | --tab]: a chromeless app window (default) or a browser tab
 //
 // On the Bash tool's PATH while the plugin is enabled; hooks call it by path.
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -73,6 +75,29 @@ function openUrl(url) {
   spawn(opener, [url], { detached: true, stdio: "ignore" }).unref();
 }
 
+// A Chromium browser's app mode: a window with no tabs, address bar or toolbars. The page sizes
+// itself too (see popup in web/src/main.ts), since a running Chrome may ignore --window-size.
+// Returns false when there's no Chromium browser to use, so the caller falls back to a tab.
+const APP_SIZE = "900,600";
+const MAC_APPS = ["Google Chrome", "Chromium", "Microsoft Edge", "Brave Browser", "Vivaldi"];
+const LINUX_BINS = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"];
+function openApp(url) {
+  const flags = [`--app=${url}`, `--window-size=${APP_SIZE}`];
+  if (process.platform === "darwin") {
+    const app = MAC_APPS.find((a) => existsSync(`/Applications/${a}.app`) || existsSync(`${process.env.HOME}/Applications/${a}.app`));
+    if (!app) return false;
+    spawn("open", ["-na", app, "--args", ...flags], { detached: true, stdio: "ignore" }).unref();
+    return true;
+  }
+  if (process.platform === "linux") {
+    const dirs = (process.env.PATH ?? "").split(delimiter);
+    const bin = LINUX_BINS.find((b) => dirs.some((d) => existsSync(`${d}/${b}`)));
+    if (!bin) return false;
+    spawn(bin, flags, { detached: true, stdio: "ignore" }).unref();
+    return true;
+  }
+  return false;
+}
 
 if (cmd === "start") await start();
 else if (cmd === "stop") await stop();
@@ -80,8 +105,13 @@ else if (cmd === "open") {
   await start();
   const run = rest.find((a) => !a.startsWith("--")) ?? process.env.CLAUDE_CODE_SESSION_ID;
   const url = run ? `${base}/?run=${encodeURIComponent(run)}` : `${base}/`;
-  openUrl(url);
-  say(`Opened ${url}`);
+  // --app/--tab win; then the plugin's window option (hooks), SWARMTRACER_WINDOW, then app.
+  const mode = rest.includes("--tab") ? "tab" : rest.includes("--app") ? "app"
+    : process.env.CLAUDE_PLUGIN_OPTION_WINDOW ?? process.env.SWARMTRACER_WINDOW ?? "app";
+  const app = mode === "app" && !process.env.SWARMTRACER_BROWSER
+    && openApp(`${url}${run ? "&" : "?"}popup=1`);
+  if (!app) openUrl(url);
+  say(`Opened ${url}${app ? " (app window)" : ""}`);
 } else if (cmd === "status") {
   const h = await health();
   if (!h) console.log(`SwarmTracer isn't running (expected at ${base}). Start it with: swarmtracer start`);
@@ -90,6 +120,6 @@ else if (cmd === "open") {
     console.log(`SwarmTracer: ${base} · pid ${h.pid} · ${runs.length} runs · ${h.pages} open page(s)`);
   }
 } else {
-  console.error(`usage: swarmtracer start|stop|status|open [run]`);
+  console.error(`usage: swarmtracer start|stop|status|open [run] [--app|--tab]`);
   process.exit(1);
 }

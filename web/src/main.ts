@@ -126,6 +126,9 @@ async function refreshRuns() {
 }
 
 async function init() {
+  // Opened as an app window by `swarmtracer open`: size it once (a tab ignores this). loadRun's
+  // replaceState drops the flag, so a reload keeps whatever size you've since chosen.
+  if (new URLSearchParams(location.search).has("popup")) window.resizeTo(900, 600);
   await refreshRuns();
   const wanted = new URLSearchParams(location.search).get("run");
   const id = runs.find((r) => r.run_id === wanted)?.run_id ?? runs[0]?.run_id;

@@ -35,11 +35,12 @@ claude plugin install swarmtracer@swarmtracer-local --scope user      # or: proj
 
 Options are set in `/config` once the plugin is enabled:
 - `open_browser`: `first subagent` (default), `session start`, or `never`.
+- `window`: `app` (default) opens the page in its own 900×600 window without browser toolbars, using Chrome, Edge, Brave or another Chromium browser (a normal tab if there's none); `tab` always uses a tab.
 - `annotate`: tell agents about `atl`; default on.
 
 Plugins can't grant permissions. So that `atl` never stops for approval, allow `Bash(atl:*)` in your settings, or pass `--allowedTools "Bash(atl:*)"` for `claude -p` runs.
 
-From a terminal: `bin/swarmtracer start | stop | status | open [run]`.
+From a terminal: `bin/swarmtracer start | stop | status | open [run] [--app|--tab]`.
 
 ### Without the plugin
 

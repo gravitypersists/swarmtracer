@@ -15,6 +15,13 @@
       "options": ["first subagent", "session start", "never"],
       "default": "first subagent"
     },
+    "window": {
+      "type": "string",
+      "title": "Timeline window",
+      "description": "Open the page in its own small window without browser toolbars (needs Chrome, Edge, Brave or another Chromium browser; otherwise a tab), or as a normal browser tab.",
+      "options": ["app", "tab"],
+      "default": "app"
+    },
     "annotate": {
       "type": "boolean",
       "title": "Ask agents to annotate",
