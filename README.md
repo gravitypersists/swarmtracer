@@ -2,7 +2,7 @@
 
 A live, browser-based timeline of Claude Code runs, including subagents. Time flows down, each agent is a lane, and lanes grow while agents work. See `BRIEF.md` for the design and `docs/` for per-milestone notes and screenshots.
 
-## Run it
+## Run it by hand
 
 ```sh
 npm install
@@ -12,24 +12,38 @@ npm run seed         # optional: load the recorded fixture runs
 
 `npm run dev` rebuilds the UI and restarts the server on change. Set `SWARMTRACER_PORT` to use another port; the hooks and `atl` read the same variable.
 
-## Trace a project
+## Use it with Claude Code (plugin)
 
-1. Generate the hook settings and merge them into the project's `.claude/settings.json`:
+SwarmTracer is a Claude Code plugin. Once it's enabled, a session starts the SwarmTracer server if it isn't running, and opens the timeline in your browser the first time the session spawns a subagent. If a SwarmTracer tab is already open, it doesn't open another; the open page follows new runs. `atl` and `swarmtracer` are on the agents' PATH, and `/swarmtracer:open` opens the page on demand.
 
-   ```sh
-   node hooks/settings.mjs --annotate
-   ```
+One-time setup:
 
-   `--annotate` adds a start hook that tells each traced agent about `atl`, plus a `Bash(atl:*)` permission. Without it you get timing only. The hooks never fail or slow a session: if SwarmTracer isn't running, they exit silently.
+```sh
+npm install --prefix /path/to/swarmtracer
+```
 
-2. For annotations, put `atl` on PATH and install the skill:
+Then pick a scope:
 
-   ```sh
-   ln -s "$PWD/cli/bin/atl" ~/.local/bin/atl                   # or any directory on PATH
-   ln -s "$PWD/skill/atl" <project>/.claude/skills/atl         # or ~/.claude/skills/atl
-   ```
+```sh
+# For one launch (e.g. alongside another plugin)
+claude --plugin-dir /path/to/swarmtracer ...
 
-3. Start Claude Code in that project. The run appears in the open page.
+# Everywhere, or for one project (run from that project for --scope project)
+claude plugin marketplace add /path/to/swarmtracer
+claude plugin install swarmtracer@swarmtracer-local --scope user      # or: project, local
+```
+
+Options are set in `/config` once the plugin is enabled:
+- `open_browser`: `first subagent` (default), `session start`, or `never`.
+- `annotate`: tell agents about `atl`; default on.
+
+Plugins can't grant permissions. So that `atl` never stops for approval, allow `Bash(atl:*)` in your settings, or pass `--allowedTools "Bash(atl:*)"` for `claude -p` runs.
+
+From a terminal: `bin/swarmtracer start | stop | status | open [run]`.
+
+### Without the plugin
+
+`node hooks/settings.mjs --annotate` prints a hooks block to merge into a project's `.claude/settings.json`. With that route, you start the server yourself (`npm start`) and put `bin/` on PATH for `atl`.
 
 ## Annotations
 

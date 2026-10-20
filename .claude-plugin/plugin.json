@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "swarmtracer",
+  "displayName": "SwarmTracer",
+  "version": "0.1.0",
+  "description": "Live timeline of Claude Code runs and their subagents in your browser, with agent annotations via `atl`.",
+  "author": { "name": "gravitypersists" },
+  "license": "MIT",
+  "keywords": ["observability", "subagents", "timeline", "multi-agent"],
+  "userConfig": {
+    "open_browser": {
+      "type": "string",
+      "title": "Open the timeline",
+      "description": "When to open the SwarmTracer page for a session. It never opens a second tab if one is already open.",
+      "options": ["first subagent", "session start", "never"],
+      "default": "first subagent"
+    },
+    "annotate": {
+      "type": "boolean",
+      "title": "Ask agents to annotate",
+      "description": "Tell each traced agent at start that it can record decisions, handoffs, deliverables and blockers with `atl`.",
+      "default": true
+    }
+  }
+}

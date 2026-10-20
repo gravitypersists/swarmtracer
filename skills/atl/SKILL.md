@@ -1,6 +1,7 @@
 ---
 name: atl
 description: Annotate this run's live timeline in SwarmTracer with decisions, handoff notes, deliverables, and blockers, one `atl` shell call each. Use when you choose between real alternatives, hand work to or back from a subagent, produce a file others will use, or are blocked, whenever the `atl` command is on PATH.
+allowed-tools: Bash(atl:*)
 ---
 
 # Annotating the timeline with `atl`

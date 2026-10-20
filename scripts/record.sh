@@ -12,8 +12,8 @@ SWARMTRACER_PORT=$PORT SWARMTRACER_DB="$WORK/rec.db" npx --prefix "$ROOT" tsx "$
 SERVER=$!
 sleep 1.5
 # RECORD_DIR runs the session elsewhere (e.g. a scratch project with the atl skill installed).
-# cli/bin goes on PATH so agents can call atl.
-(cd "${RECORD_DIR:-$ROOT}" && PATH="$ROOT/cli/bin:$PATH" env -u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION \
+# bin/ goes on PATH so agents can call atl (as the plugin does).
+(cd "${RECORD_DIR:-$ROOT}" && PATH="$ROOT/bin:$PATH" env -u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION \
   -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN \
   -u CLAUDE_PID -u CLAUDE_CODE_SESSION_ATTENDED -u CLAUDE_EFFORT -u AI_AGENT \
   SWARMTRACER_PORT=$PORT claude -p "$PROMPT" --settings "$WORK/settings.json" --model "${RECORD_MODEL:-sonnet}" \

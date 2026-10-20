@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+// swarmtracer: start, stop, and open the local SwarmTracer server.
+//
+//   swarmtracer start [--quiet]   start the server in the background if it isn't running
+//   swarmtracer stop              stop a server this command started
+//   swarmtracer status            print the URL, runs, and open pages
+//   swarmtracer open [run]        open the page (at a run: default this Claude Code session)
+//
+// On the Bash tool's PATH while the plugin is enabled; hooks call it by path.
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const root = fileURLToPath(new URL("..", import.meta.url));
+const port = process.env.SWARMTRACER_PORT ?? "47821";
+const base = `http://127.0.0.1:${port}`;
+const dataDir = `${root}data`;
+const pidFile = `${dataDir}/server.pid`;
+const [cmd = "status", ...rest] = process.argv.slice(2);
+const quiet = rest.includes("--quiet");
+const say = (msg) => { if (!quiet) console.log(msg); };
+
+async function health() {
+  try {
+    const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(400) });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function start() {
+  if (await health()) return say(`SwarmTracer is running: ${base}`);
+  if (!existsSync(`${root}node_modules/better-sqlite3`)) {
+    console.error(`swarmtracer: dependencies missing. Run: npm install --prefix "${root}"`);
+    process.exit(1);
+  }
+  if (!existsSync(`${root}web/dist/app.js`)) {
+    spawnSync(`${root}node_modules/.bin/esbuild`, ["web/src/main.ts", "--bundle", "--format=esm", "--sourcemap",
+      "--outfile=web/dist/app.js", "--log-level=error"], { cwd: root, stdio: "inherit" });
+  }
+  mkdirSync(dataDir, { recursive: true });
+  const log = openSync(`${dataDir}/server.log`, "a");
+  // Node runs the TypeScript server directly (type stripping); detached so it outlives the caller.
+  const child = spawn(process.execPath, ["server/src/index.ts"], {
+    cwd: root, detached: true, stdio: ["ignore", log, log], env: { ...process.env, SWARMTRACER_PORT: port },
+  });
+  child.unref();
+  writeFileSync(pidFile, String(child.pid));
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    if (await health()) return say(`SwarmTracer started: ${base}`);
+  }
+  console.error(`swarmtracer: server didn't come up; see ${dataDir}/server.log`);
+  process.exit(1);
+}
+
+async function stop() {
+  const h = await health();
+  if (!h) return say("SwarmTracer isn't running.");
+  const pid = existsSync(pidFile) ? Number(readFileSync(pidFile, "utf8")) : NaN;
+  if (pid !== h.pid) {
+    console.error(`swarmtracer: the server on ${base} (pid ${h.pid}) wasn't started by this command; stop it where it runs.`);
+    process.exit(1);
+  }
+  process.kill(pid);
+  rmSync(pidFile, { force: true });
+  say("SwarmTracer stopped.");
+}
+
+function openUrl(url) {
+  const opener = process.env.SWARMTRACER_BROWSER ?? (process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer" : "xdg-open");
+  spawn(opener, [url], { detached: true, stdio: "ignore" }).unref();
+}
+
+
+if (cmd === "start") await start();
+else if (cmd === "stop") await stop();
+else if (cmd === "open") {
+  await start();
+  const run = rest.find((a) => !a.startsWith("--")) ?? process.env.CLAUDE_CODE_SESSION_ID;
+  const url = run ? `${base}/?run=${encodeURIComponent(run)}` : `${base}/`;
+  openUrl(url);
+  say(`Opened ${url}`);
+} else if (cmd === "status") {
+  const h = await health();
+  if (!h) console.log(`SwarmTracer isn't running (expected at ${base}). Start it with: swarmtracer start`);
+  else {
+    const runs = await (await fetch(`${base}/runs`)).json();
+    console.log(`SwarmTracer: ${base} · pid ${h.pid} · ${runs.length} runs · ${h.pages} open page(s)`);
+  }
+} else {
+  console.error(`usage: swarmtracer start|stop|status|open [run]`);
+  process.exit(1);
+}

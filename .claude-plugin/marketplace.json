@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "swarmtracer-local",
+  "owner": { "name": "gravitypersists" },
+  "description": "Local marketplace for SwarmTracer.",
+  "plugins": [
+    { "name": "swarmtracer", "source": "./", "description": "Live timeline of Claude Code runs and their subagents." }
+  ]
+}

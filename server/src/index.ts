@@ -89,6 +89,8 @@ function json(res: ServerResponse, value: unknown) {
 
 // Server-Sent Events. `run` limits the stream to one run; without it every new event is sent
 // (the UI uses that to notice new runs). Resumes from Last-Event-ID or `after`.
+let pages = 0; // open UI pages (each holds a run-less /stream); hooks use it to avoid duplicate tabs
+
 function onStream(req: IncomingMessage, res: ServerResponse, url: URL) {
   const run = url.searchParams.get("run");
   const resumeFrom = req.headers["last-event-id"] ?? url.searchParams.get("after");
@@ -101,12 +103,15 @@ function onStream(req: IncomingMessage, res: ServerResponse, url: URL) {
     res.write(`id: ${e.id}\ndata: ${JSON.stringify(e)}\n\n`);
   };
   const unsubscribe = db.subscribe(send);
+  const isPage = !run;
+  if (isPage) pages++;
   for (const e of run ? db.events(run, after) : db.eventsAfter(after)) send(e);
 
   const ping = setInterval(() => res.write(": ping\n\n"), 15_000);
   req.on("close", () => {
     unsubscribe();
     clearInterval(ping);
+    if (isPage) pages--;
   });
 }
 
@@ -141,6 +146,7 @@ const server = createServer((req, res) => {
   if (artifact) return serveArtifact(artifact[1], res);
   if (req.method === "GET" && url.pathname === "/stream") return onStream(req, res, url);
   if (req.method === "GET" && url.pathname === "/runs") return json(res, db.runs());
+  if (req.method === "GET" && url.pathname === "/health") return json(res, { ok: true, pid: process.pid, pages });
   if (req.method === "GET" && url.pathname === "/transcript") {
     const path = url.searchParams.get("path") ?? "";
     if (!transcripts.isKnown(path)) return void res.writeHead(403).end("unknown transcript");
